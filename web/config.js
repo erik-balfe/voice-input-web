@@ -1,7 +1,9 @@
 // Public configuration (no secrets). The client id is the public Grok CLI client used by
 // erik-balfe/voice-input-android; tokens are obtained per user and kept in IndexedDB.
 export const CONFIG = {
-  authProxy: "https://agent-host.tailc5f02e.ts.net/xai-auth", // forwards only device/code + token to auth.x.ai
+  // The auth proxy URL is NOT in the repo: the user pastes the secret key (path) or full URL
+  // in Settings; it is kept in IndexedDB only. A bare key is mounted on this default host.
+  defaultProxyHost: "agent-host.tailc5f02e.ts.net",
   clientId: "b1a00492-073a-47ea-816f-4c329264a828",
   scope: "openid profile email offline_access grok-cli:access api:access",
   refreshSkewSec: 3600, // refresh 1 h before JWT exp (same as Android)

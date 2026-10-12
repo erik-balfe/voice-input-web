@@ -8,7 +8,7 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-12.5";
+const APP_VERSION = "2026-10-13.1";
 
 
 const settings = {
@@ -119,6 +119,22 @@ function showTab(name) {
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 document.querySelectorAll("[data-goto]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); showTab(a.dataset.goto); }));
 
+// ---------- auth proxy key ----------
+async function renderProxy() {
+  const base = await auth.proxyBase();
+  $("proxy-key").value = base;
+  $("proxy-status").textContent = base ? `Сервер входа: ${new URL(base).host}/••••` : "Нужен для входа через xAI. Получите ключ у администратора.";
+  return base;
+}
+$("proxy-key").onchange = async (e) => {
+  const raw = e.target.value.trim();
+  if (!raw) { await kv.del("proxyBase"); await renderProxy(); return; }
+  const base = auth.normalizeProxy(raw);
+  if (!base) { $("proxy-status").textContent = "Неверный ключ: нужен ключ (от 16 символов: буквы, цифры, - _) или https://… адрес"; return; }
+  await kv.set("proxyBase", base);
+  await renderProxy();
+};
+
 // ---------- account ----------
 async function ready() {
   const mode = (await kv.get("authMode")) || "oauth";
@@ -152,6 +168,13 @@ async function renderAccount() {
 
 async function login() {
   const box = $("login-box");
+  if (!(await auth.proxyBase())) {
+    const raw = prompt("Вставьте ключ сервера (секретный путь или полный https-адрес):");
+    const base = auth.normalizeProxy(raw);
+    if (!base) { if (raw) alert("Неверный ключ сервера"); $("proxy-key").focus(); return; }
+    await kv.set("proxyBase", base);
+    await renderProxy();
+  }
   try {
     const start = await auth.startDeviceCode();
     $("user-code").textContent = start.userCode;
@@ -438,6 +461,7 @@ async function autostart() {
 async function boot() {
   bindSettings();
   await loadSettings();
+  await renderProxy();
   await renderAccount();
   navigator.storage?.persist?.().catch(() => {});
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

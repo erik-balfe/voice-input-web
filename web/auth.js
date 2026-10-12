@@ -1,13 +1,34 @@
 // xAI device-code OAuth (RFC 8628), ported from voice-input-ios XaiAuth.swift /
-// voice-input-android XaiOauth.kt. auth.x.ai has no CORS, so calls go through CONFIG.authProxy.
+// voice-input-android XaiOauth.kt. auth.x.ai has no CORS, so calls go through the user's auth proxy
+// (secret URL stored in IndexedDB, see proxyBase()).
 import { CONFIG } from "./config.js";
 import { kv } from "./db.js";
 
 let refreshing = null;
 let cancelled = false;
 
+/** Normalize user input: full https URL, or just the secret key/path. Returns "" if invalid. */
+export function normalizeProxy(input) {
+  let v = String(input || "").trim();
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) {
+    try {
+      const u = new URL(v);
+      if (u.protocol !== "https:") return "";
+      return (u.origin + u.pathname).replace(/\/+$/, "");
+    } catch (_) { return ""; }
+  }
+  v = v.replace(/^\/+|\/+$/g, "");
+  if (!/^[A-Za-z0-9_-]{16,}$/.test(v)) return "";
+  return `https://${CONFIG.defaultProxyHost}/${v}`;
+}
+
+export async function proxyBase() { return (await kv.get("proxyBase")) || ""; }
+
 async function postForm(path, fields) {
-  const res = await fetch(CONFIG.authProxy + path, {
+  const base = await proxyBase();
+  if (!base) throw new Error("Сначала вставьте ключ сервера в Настройках");
+  const res = await fetch(base + path, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams(fields).toString(),

@@ -55,7 +55,7 @@ function send(res, status, headers, body) {
 }
 
 function matchRoute(pathname) {
-  // Works whether or not the reverse proxy strips the mount path (e.g. /xai-auth).
+  // Works whether or not the reverse proxy strips the mount path (e.g. a secret path).
   for (const r of Object.keys(routes)) if (pathname === r || pathname.endsWith(r)) return r;
   if (pathname === "/healthz" || pathname.endsWith("/healthz")) return "/healthz";
   return null;
