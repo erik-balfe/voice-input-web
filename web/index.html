@@ -84,7 +84,9 @@
       <label class="toggle"><input type="checkbox" id="autocopy" checked> Автокопирование по «Стоп»</label>
       <details>
         <summary>Модель и промпт чистки</summary>
-        <label>Модель <input id="cleanup-model" type="text" autocomplete="off"></label>
+        <label>Модель <select id="cleanup-model-select"></select></label>
+        <label id="custom-model-wrap" class="hidden">Своя модель (ID) <input id="cleanup-model-custom" type="text" autocomplete="off" placeholder="например grok-4.7"></label>
+        <label>Глубина рассуждения <select id="cleanup-effort"></select></label>
         <label>Промпт <textarea id="cleanup-prompt" rows="7"></textarea></label>
         <button id="reset-prompt" class="secondary">Сбросить по умолчанию</button>
       </details>

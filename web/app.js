@@ -1,7 +1,7 @@
 import { CONFIG } from "./config.js";
 import { kv, history } from "./db.js";
 import * as auth from "./auth.js";
-import { transcribe, cleanup } from "./grok.js";
+import { transcribe, cleanup, HttpError } from "./grok.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -14,6 +14,7 @@ const settings = {
   cleanup: false,
   autocopy: true,
   cleanupModel: CONFIG.defaultCleanupModel,
+  cleanupEffort: CONFIG.defaultCleanupEffort, // "" = model default (not sent)
   cleanupPrompt: CONFIG.defaultCleanupPrompt,
 };
 
@@ -24,11 +25,23 @@ let rec = null; // { stream, recorder, chunks, mime, startedAt, ctx, raf, timer 
 async function loadSettings() {
   const saved = (await kv.get("settings")) || {};
   Object.assign(settings, saved);
+  // Migrate old defaults; keep anything the user chose deliberately.
+  let migrated = false;
+  if (!saved.cleanupModel || CONFIG.legacyCleanupModels.includes(saved.cleanupModel)) {
+    if (settings.cleanupModel !== CONFIG.defaultCleanupModel) migrated = true;
+    settings.cleanupModel = CONFIG.defaultCleanupModel;
+    settings.cleanupEffort = CONFIG.defaultCleanupEffort;
+  }
+  if (!saved.cleanupPrompt || CONFIG.legacyCleanupPrompts.includes(saved.cleanupPrompt.trim())) {
+    if (saved.cleanupPrompt) migrated = true;
+    settings.cleanupPrompt = CONFIG.defaultCleanupPrompt;
+  }
+  if (migrated) await saveSettings();
   $("language").value = settings.language;
   $("cleanup").checked = settings.cleanup;
   $("cleanup-quick").checked = settings.cleanup;
   $("autocopy").checked = settings.autocopy;
-  $("cleanup-model").value = settings.cleanupModel;
+  renderModelControls();
   $("cleanup-prompt").value = settings.cleanupPrompt;
   $("use-apikey").checked = ((await kv.get("authMode")) || "oauth") === "apikey";
   $("apikey").value = (await kv.get("apiKey")) || "";
@@ -41,14 +54,57 @@ function bindSettings() {
   $("cleanup").onchange = (e) => setCleanup(e.target.checked);
   $("cleanup-quick").onchange = (e) => setCleanup(e.target.checked);
   $("autocopy").onchange = (e) => { settings.autocopy = e.target.checked; saveSettings(); };
-  $("cleanup-model").onchange = (e) => { settings.cleanupModel = e.target.value.trim() || CONFIG.defaultCleanupModel; saveSettings(); };
+  $("cleanup-model-select").onchange = (e) => {
+    const v = e.target.value;
+    if (v === "__custom") { settings.cleanupModel = $("cleanup-model-custom").value.trim() || settings.cleanupModel; showCustom(true); }
+    else { settings.cleanupModel = v; const m = modelInfo(v); settings.cleanupEffort = m?.efforts ? m.defaultEffort : ""; }
+    saveSettings(); renderModelControls();
+  };
+  $("cleanup-model-custom").onchange = (e) => { const v = e.target.value.trim(); if (v) { settings.cleanupModel = v; saveSettings(); renderModelControls(); } };
+  $("cleanup-effort").onchange = (e) => { settings.cleanupEffort = e.target.value; saveSettings(); };
   $("cleanup-prompt").onchange = (e) => { settings.cleanupPrompt = e.target.value.trim() || CONFIG.defaultCleanupPrompt; saveSettings(); };
   $("reset-prompt").onclick = () => {
     settings.cleanupModel = CONFIG.defaultCleanupModel; settings.cleanupPrompt = CONFIG.defaultCleanupPrompt;
-    $("cleanup-model").value = settings.cleanupModel; $("cleanup-prompt").value = settings.cleanupPrompt; saveSettings();
+    renderModelControls(); $("cleanup-prompt").value = settings.cleanupPrompt; saveSettings();
   };
   $("use-apikey").onchange = async (e) => { await kv.set("authMode", e.target.checked ? "apikey" : "oauth"); renderAccount(); };
   $("apikey").onchange = async (e) => { const v = e.target.value.trim(); v ? await kv.set("apiKey", v) : await kv.del("apiKey"); renderAccount(); };
+}
+
+const modelInfo = (id) => CONFIG.cleanupModels.find((m) => m.id === id);
+let customShown = false;
+function showCustom(v) { customShown = v; $("custom-model-wrap").classList.toggle("hidden", !v); }
+
+function renderModelControls() {
+  const sel = $("cleanup-model-select");
+  const known = modelInfo(settings.cleanupModel);
+  sel.innerHTML = "";
+  for (const m of CONFIG.cleanupModels) sel.add(new Option(m.label, m.id));
+  sel.add(new Option("Другая модель…", "__custom"));
+  sel.value = known && !customShown ? known.id : "__custom";
+  showCustom(!known || customShown);
+  if (!known) $("cleanup-model-custom").value = settings.cleanupModel;
+  const eff = $("cleanup-effort");
+  eff.innerHTML = "";
+  eff.add(new Option("по умолчанию модели", ""));
+  const names = { none: "без рассуждения (быстрее всего)", low: "низкая (быстро)", medium: "средняя", high: "высокая", xhigh: "максимальная" };
+  const list = known ? known.efforts || [] : ["none", "low", "medium", "high", "xhigh"];
+  for (const e of list) eff.add(new Option(names[e] || e, e));
+  eff.disabled = !!known && !known.efforts;
+  if (known && (!known.efforts || !known.efforts.includes(settings.cleanupEffort))) settings.cleanupEffort = known.efforts ? known.defaultEffort : "";
+  eff.value = settings.cleanupEffort || "";
+}
+
+/** Cleanup with automatic fallback when the chosen model is rejected (e.g. not available to the OAuth token). */
+async function runCleanup(raw) {
+  try {
+    return { text: await cleanup(raw, settings.cleanupModel, settings.cleanupPrompt, settings.cleanupEffort || undefined), note: "" };
+  } catch (e) {
+    const fb = CONFIG.fallbackCleanupModel;
+    if (!(e instanceof HttpError) || ![400, 403, 404].includes(e.status) || settings.cleanupModel === fb) throw e;
+    const text = await cleanup(raw, fb, settings.cleanupPrompt, modelInfo(fb).defaultEffort);
+    return { text, note: `Модель ${settings.cleanupModel} отклонена (${e.message.slice(0, 120)}), использована ${fb}` };
+  }
 }
 
 // ---------- tabs ----------
@@ -231,7 +287,7 @@ async function processTake(take, existingId) {
     entry.error = "";
     if (settings.cleanup) {
       setStatus("Чищу текст…");
-      try { entry.text = await cleanup(entry.raw, settings.cleanupModel, settings.cleanupPrompt); }
+      try { const r = await runCleanup(entry.raw); entry.text = r.text; entry.error = r.note; entry.model = settings.cleanupModel; }
       catch (e) { entry.error = `Чистка не удалась, оставлен исходный текст: ${e.message}`; }
     }
     await history.put(entry);

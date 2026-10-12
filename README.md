@@ -1,7 +1,7 @@
 # Grok Voice (web)
 
 Voice input PWA for iPhone: tap → speak → tap → text is transcribed by xAI Grok STT
-(`grok-voice-transcribe-2.0`), optionally cleaned up by Grok, and copied to the clipboard.
+(`grok-voice-transcribe-2.0`), optionally cleaned up by Grok (default `grok-4.7`, reasoning effort `low`, auto-fallback to `grok-4.3`), and copied to the clipboard.
 Sign-in uses your Grok account (xAI OAuth device flow, same public client as
 [voice-input-android](https://github.com/erik-balfe/voice-input-android)); no API key needed.
 

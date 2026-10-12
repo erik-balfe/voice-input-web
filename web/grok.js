@@ -6,7 +6,7 @@ import { kv } from "./db.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(status, body) { super(`HTTP ${status}: ${String(body).slice(0, 200)}`); this.status = status; }
 }
 
@@ -45,18 +45,20 @@ export async function transcribe(blob, language) {
 }
 
 /** Optional cleanup through the Responses API (same bearer). */
-export async function cleanup(text, model, prompt) {
+export async function cleanup(text, model, prompt, effort) {
+  const payload = {
+    model,
+    store: false,
+    input: [
+      { role: "system", content: prompt },
+      { role: "user", content: text },
+    ],
+  };
+  if (effort) payload.reasoning = { effort };
   const res = await fetch(CONFIG.responsesUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${await bearer()}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      store: false,
-      input: [
-        { role: "system", content: prompt },
-        { role: "user", content: text },
-      ],
-    }),
+    body: JSON.stringify(payload),
   });
   const body = await res.text();
   if (!res.ok) throw new HttpError(res.status, body);
