@@ -8,7 +8,7 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-13.1";
+const APP_VERSION = "2026-10-13.2";
 
 
 const settings = {
