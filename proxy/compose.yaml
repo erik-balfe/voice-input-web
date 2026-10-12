@@ -1,0 +1,17 @@
+services:
+  xai-auth-proxy:
+    build: .
+    image: voice-input-web/xai-auth-proxy:latest
+    container_name: xai-auth-proxy
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 96m
+    environment:
+      ALLOWED_ORIGINS: https://erik-balfe.github.io
+    ports:
+      - "127.0.0.1:18790:8080"
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "2" }

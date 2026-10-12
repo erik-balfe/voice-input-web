@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Grok Voice</title>
+  <meta name="description" content="Голосовой ввод через Grok STT: запись → текст → буфер обмена">
+  <meta name="theme-color" content="#0b0b0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Grok Voice">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <nav>
+      <button data-tab="dictate" class="tab active">Диктовка</button>
+      <button data-tab="history" class="tab">История</button>
+      <button data-tab="settings" class="tab">Настройки</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-dictate" class="panel active">
+      <div id="signin-hint" class="hint hidden">Сначала войдите: <a href="#" data-goto="settings">Настройки → Войти через xAI</a></div>
+      <div id="status" class="status">Нажмите, чтобы начать запись</div>
+      <button id="rec" class="rec" aria-label="Запись">
+        <span class="ring" id="ring"></span>
+        <span class="icon" id="rec-icon">●</span>
+      </button>
+      <div id="timer" class="timer"></div>
+      <div class="row">
+        <button id="cancel" class="secondary hidden">Отмена</button>
+        <label class="toggle"><input type="checkbox" id="cleanup-quick"> Чистка текста</label>
+      </div>
+      <textarea id="result" placeholder="Здесь появится текст" rows="5"></textarea>
+      <div class="row">
+        <button id="copy" class="primary" disabled>Скопировать</button>
+        <span id="copied" class="copied"></span>
+      </div>
+    </section>
+
+    <section id="tab-history" class="panel">
+      <div class="row between"><h2>История</h2><button id="clear-history" class="secondary">Очистить</button></div>
+      <ul id="history-list" class="history"></ul>
+    </section>
+
+    <section id="tab-settings" class="panel">
+      <h2>Аккаунт</h2>
+      <div id="account"></div>
+      <div id="login-box" class="card hidden">
+        <p>Откройте страницу xAI и подтвердите код:</p>
+        <div id="user-code" class="code"></div>
+        <div class="row">
+          <a id="verify-link" class="button primary" target="_blank" rel="noopener">Открыть xAI</a>
+          <button id="copy-code" class="secondary">Копировать код</button>
+          <button id="cancel-login" class="secondary">Отмена</button>
+        </div>
+        <p class="small">После подтверждения вернитесь сюда — вход завершится сам.</p>
+      </div>
+      <details>
+        <summary>API-ключ вместо OAuth (необязательно)</summary>
+        <label class="toggle"><input type="checkbox" id="use-apikey"> Использовать API-ключ</label>
+        <input id="apikey" type="password" placeholder="xai-…" autocomplete="off">
+      </details>
+
+      <h2>Распознавание</h2>
+      <label>Язык
+        <select id="language">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="de">Deutsch</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+        </select>
+      </label>
+      <label class="toggle"><input type="checkbox" id="cleanup"> Чистить и сокращать текст через Grok</label>
+      <label class="toggle"><input type="checkbox" id="autocopy" checked> Автокопирование по «Стоп»</label>
+      <details>
+        <summary>Модель и промпт чистки</summary>
+        <label>Модель <input id="cleanup-model" type="text" autocomplete="off"></label>
+        <label>Промпт <textarea id="cleanup-prompt" rows="7"></textarea></label>
+        <button id="reset-prompt" class="secondary">Сбросить по умолчанию</button>
+      </details>
+
+      <h2>О приложении</h2>
+      <p class="small">Токены, настройки и история хранятся только на этом устройстве (IndexedDB).
+        Аудио и текст идут напрямую в api.x.ai. Через прокси идут только запросы входа к auth.x.ai.
+        <a href="https://github.com/erik-balfe/voice-input-web" target="_blank" rel="noopener">Исходный код</a></p>
+      <p class="small" id="diag"></p>
+    </section>
+  </main>
+</body>
+</html>
