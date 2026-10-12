@@ -107,7 +107,7 @@ async function login() {
     setStatus("Готово. Нажмите, чтобы начать запись");
   } catch (e) {
     box.classList.add("hidden");
-    alert(e.message || String(e));
+    if ((e.message || "") !== "Вход отменён") alert(e.message || String(e));
   }
 }
 
