@@ -8,12 +8,8 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-12.4";
-// Keep the mic stream open for a while after a take: WebKit re-prompts for the mic
-// after ~1 min without active capture, but not while capture is ongoing.
-const WARM_MS = 5 * 60 * 1000;
-let micStream = null;
-let warmTimer = null;
+const APP_VERSION = "2026-10-12.5";
+
 
 const settings = {
   language: "ru",
@@ -224,18 +220,8 @@ async function startRecording() {
   setStatus("Говорите… Нажмите ещё раз, чтобы закончить");
 }
 
-function streamLive(st) { return st && st.getAudioTracks().some((t) => t.readyState === "live"); }
-
 async function getMicStream() {
-  clearTimeout(warmTimer);
-  if (streamLive(micStream)) return micStream;
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-  return micStream;
-}
-
-function scheduleMicRelease() {
-  clearTimeout(warmTimer);
-  warmTimer = setTimeout(() => { if (state === "idle" && micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; } }, WARM_MS);
+  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
 }
 
 function startMeter(stream) {
@@ -267,7 +253,7 @@ function releaseRecorder() {
   clearInterval(rec.timer);
   cancelAnimationFrame(rec.raf);
   rec.ctx?.close?.().catch(() => {});
-  scheduleMicRelease(); // stream stays open (warm) for WARM_MS
+  rec.stream.getTracks().forEach((t) => t.stop()); // release the mic immediately
   $("ring").style.transform = "";
   $("timer").textContent = "";
 }
