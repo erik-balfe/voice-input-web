@@ -38,3 +38,5 @@ button, .button { border:0; border-radius:10px; padding:11px 16px; font-size:16p
 h2 { font-size:18px; margin: 18px 0 6px; }
 details { margin: 10px 0; } summary { color:var(--accent); }
 a { color: var(--accent); }
+.rec.invite { animation: invite 1s ease-in-out 4; }
+@keyframes invite { 50% { transform: scale(1.06); box-shadow: 0 0 0 12px rgba(79,140,255,.35); } }

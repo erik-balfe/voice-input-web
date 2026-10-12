@@ -8,6 +8,12 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
+const APP_VERSION = "2026-10-12.4";
+// Keep the mic stream open for a while after a take: WebKit re-prompts for the mic
+// after ~1 min without active capture, but not while capture is ongoing.
+const WARM_MS = 5 * 60 * 1000;
+let micStream = null;
+let warmTimer = null;
 
 const settings = {
   language: "ru",
@@ -98,12 +104,13 @@ function renderModelControls() {
 /** Cleanup with automatic fallback when the chosen model is rejected (e.g. not available to the OAuth token). */
 async function runCleanup(raw) {
   try {
-    return { text: await cleanup(raw, settings.cleanupModel, settings.cleanupPrompt, settings.cleanupEffort || undefined), note: "" };
+    const effort = settings.cleanupEffort || "";
+    return { text: await cleanup(raw, settings.cleanupModel, settings.cleanupPrompt, effort || undefined), note: "", model: settings.cleanupModel, effort };
   } catch (e) {
     const fb = CONFIG.fallbackCleanupModel;
     if (!(e instanceof HttpError) || ![400, 403, 404].includes(e.status) || settings.cleanupModel === fb) throw e;
     const text = await cleanup(raw, fb, settings.cleanupPrompt, modelInfo(fb).defaultEffort);
-    return { text, note: `Модель ${settings.cleanupModel} отклонена (${e.message.slice(0, 120)}), использована ${fb}` };
+    return { text, model: fb, effort: modelInfo(fb).defaultEffort, note: `Модель ${settings.cleanupModel} отклонена (${e.message.slice(0, 120)}), использована ${fb}` };
   }
 }
 
@@ -196,7 +203,7 @@ async function startRecording() {
   setStatus("Запрашиваю микрофон…");
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    stream = await getMicStream();
   } catch (e) {
     setState("idle");
     setStatus(e.name === "NotAllowedError" ? "Нет доступа к микрофону — нажмите кнопку, чтобы начать" : `Микрофон: ${e.message}`);
@@ -215,6 +222,20 @@ async function startRecording() {
   }, 250);
   setState("recording");
   setStatus("Говорите… Нажмите ещё раз, чтобы закончить");
+}
+
+function streamLive(st) { return st && st.getAudioTracks().some((t) => t.readyState === "live"); }
+
+async function getMicStream() {
+  clearTimeout(warmTimer);
+  if (streamLive(micStream)) return micStream;
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  return micStream;
+}
+
+function scheduleMicRelease() {
+  clearTimeout(warmTimer);
+  warmTimer = setTimeout(() => { if (state === "idle" && micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; } }, WARM_MS);
 }
 
 function startMeter(stream) {
@@ -246,7 +267,7 @@ function releaseRecorder() {
   clearInterval(rec.timer);
   cancelAnimationFrame(rec.raf);
   rec.ctx?.close?.().catch(() => {});
-  rec.stream.getTracks().forEach((t) => t.stop());
+  scheduleMicRelease(); // stream stays open (warm) for WARM_MS
   $("ring").style.transform = "";
   $("timer").textContent = "";
 }
@@ -285,12 +306,17 @@ async function processTake(take, existingId) {
     entry.raw = await transcribe(entry.audio, settings.language);
     entry.text = entry.raw;
     entry.error = "";
+    entry.model = ""; entry.effort = "";
     if (settings.cleanup) {
       setStatus("Чищу текст…");
-      try { const r = await runCleanup(entry.raw); entry.text = r.text; entry.error = r.note; entry.model = settings.cleanupModel; }
+      try {
+        const r = await runCleanup(entry.raw);
+        entry.text = r.text; entry.error = r.note; entry.model = r.model; entry.effort = r.effort;
+      }
       catch (e) { entry.error = `Чистка не удалась, оставлен исходный текст: ${e.message}`; }
     }
     await history.put(entry);
+    $("result-meta").textContent = describeModel(entry);
     return entry.text;
   } catch (e) {
     entry.error = e.message || String(e);
@@ -354,6 +380,11 @@ $("cancel").onclick = cancelRecording;
 $("copy").onclick = () => copyText($("result").value);
 $("result").oninput = () => ($("copy").disabled = !$("result").value);
 
+function describeModel(e) {
+  if (!e.model) return "без чистки (только распознавание)";
+  return `модель ${e.model}, effort ${e.effort || "по умолчанию"}`;
+}
+
 // ---------- history ----------
 const fmtDate = (ts) => new Date(ts).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
@@ -370,7 +401,10 @@ async function renderHistory() {
     const txt = document.createElement("div");
     txt.className = "text";
     txt.textContent = e.text || (e.error ? "" : "…");
-    li.append(meta, txt);
+    const mm = document.createElement("div");
+    mm.className = "meta";
+    if (e.raw) mm.textContent = describeModel(e);
+    li.append(meta, txt, mm);
     if (e.text && e.raw && e.text !== e.raw) {
       const raw = document.createElement("details");
       raw.innerHTML = `<summary class="small">Исходный текст</summary>`;
@@ -398,6 +432,22 @@ async function renderHistory() {
 }
 $("clear-history").onclick = async () => { if (confirm("Удалить всю историю?")) { await history.clear(); renderHistory(); } };
 
+async function micPermissionState() {
+  try { return (await navigator.permissions.query({ name: "microphone" })).state; } catch (_) { return "unknown"; }
+}
+
+/** Best effort: iOS often refuses mic capture without a tap. Never fakes it — falls back to the button. */
+async function autostart() {
+  if (state !== "idle" || !(await ready())) return;
+  const perm = await micPermissionState();
+  if (perm !== "denied") await startRecording();
+  if (state !== "recording") {
+    setStatus("Нажмите кнопку, чтобы начать запись");
+    $("rec").classList.add("invite");
+    setTimeout(() => $("rec").classList.remove("invite"), 4000);
+  }
+}
+
 // ---------- boot ----------
 async function boot() {
   bindSettings();
@@ -406,14 +456,14 @@ async function boot() {
   navigator.storage?.persist?.().catch(() => {});
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-  $("diag").textContent = `Формат записи: ${pickMime() || "по умолчанию"} · ${standalone ? "режим приложения" : "в браузере"} · ClipboardItem: ${window.ClipboardItem ? "да" : "нет"}`;
+  $("diag").textContent = `Версия ${APP_VERSION} · Микрофон: ${await micPermissionState()} · Формат записи: ${pickMime() || "по умолчанию"} · ${standalone ? "режим приложения" : "в браузере"} · ClipboardItem: ${window.ClipboardItem ? "да" : "нет"}`;
   if (AUTOSTART) {
-    await startRecording();
+    await autostart();
     // Re-opening an already running PWA (Action Button / Back Tap) may only bring it to the front.
     let hiddenAt = 0;
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) { hiddenAt = Date.now(); return; }
-      if (state === "idle" && hiddenAt && Date.now() - hiddenAt > 1500) startRecording();
+      if (state === "idle" && hiddenAt && Date.now() - hiddenAt > 1500) autostart();
     });
   }
 }
