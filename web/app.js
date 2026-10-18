@@ -10,21 +10,20 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-18.3";
+const APP_VERSION = "2026-10-18.4";
 
 
 const settings = {
   language: "ru",
   cleanup: false,
   autocopy: true,
-  preset: CONFIG.defaultPreset, // fast | smart | custom
+  preset: CONFIG.defaultPreset, // a key of CONFIG.presets or "custom"
   cleanupModel: CONFIG.presets[CONFIG.defaultPreset].model,
   cleanupEffort: CONFIG.presets[CONFIG.defaultPreset].effort, // "" = model default (not sent)
-  cleanupPrompt: CONFIG.carefulCleanupPrompt,
+  cleanupPrompt: CONFIG.strictCleanupPrompt,
   skipRefineWords: 0, // 0 = always refine; N = skip refine for dictations shorter than N words
   refineBudgetMs: CONFIG.refineBudgetMs,
   timings: true, // numeric timings only, never dictated text
-  presetNote: false, // one-time notice after migration to the fast preset
 };
 let resultEdited = false;
 
@@ -35,17 +34,16 @@ let rec = null; // { stream, recorder, chunks, mime, startedAt, ctx, raf, timer 
 async function loadSettings() {
   const saved = (await kv.get("settings")) || {};
   Object.assign(settings, saved);
-  // Migrate: users who never changed the old default (grok-4.7 low + careful prompt) get the «classic» preset: behaviour is unchanged.
+  // Settings that were never customised (no preset, or a retired preset, with the stock model/effort/prompt) follow the default preset.
   let migrated = false;
-  if (!saved.preset) {
-    const oldPrompts = [CONFIG.carefulCleanupPrompt, ...CONFIG.legacyCleanupPrompts];
-    const untouched = (!saved.cleanupModel || saved.cleanupModel === "grok-4.7" || CONFIG.legacyCleanupModels.includes(saved.cleanupModel))
-      && (!saved.cleanupPrompt || oldPrompts.includes(saved.cleanupPrompt.trim()));
-    if (untouched) { applyPreset(CONFIG.defaultPreset); settings.presetNote = false; }
-    else settings.preset = "custom";
+  if (!saved.preset || CONFIG.retiredPresets.includes(saved.preset)) {
+    const untouched = (!saved.cleanupModel || saved.cleanupModel === "grok-4.7")
+      && (!saved.cleanupEffort || saved.cleanupEffort === "low")
+      && (!saved.cleanupPrompt || CONFIG.legacyCleanupPrompts.includes(saved.cleanupPrompt.trim()));
+    if (untouched) applyPreset(CONFIG.defaultPreset); else settings.preset = "custom";
     migrated = true;
   }
-  // Presets are authoritative: re-sync model/effort/prompt so prompt improvements reach users of a named preset.
+  // Presets are authoritative: re-sync model/effort/prompt so a changed preset definition reaches its users.
   if (CONFIG.presets[settings.preset]) {
     const before = JSON.stringify([settings.cleanupModel, settings.cleanupEffort, settings.cleanupPrompt]);
     applyPreset(settings.preset);
@@ -60,7 +58,6 @@ async function loadSettings() {
   $("skip-words").value = settings.skipRefineWords;
   $("refine-budget").value = Math.round(settings.refineBudgetMs / 1000);
   $("timings-on").checked = settings.timings !== false;
-  $("preset-note").classList.toggle("hidden", !settings.presetNote);
   renderModelControls();
   $("cleanup-prompt").value = settings.cleanupPrompt;
   $("use-apikey").checked = ((await kv.get("authMode")) || "oauth") === "apikey";
@@ -74,7 +71,7 @@ function applyPreset(name) {
   settings.preset = name;
   settings.cleanupModel = p.model;
   settings.cleanupEffort = p.effort;
-  settings.cleanupPrompt = p.prompt === "strict" ? CONFIG.strictCleanupPrompt : CONFIG.carefulCleanupPrompt;
+  settings.cleanupPrompt = CONFIG.strictCleanupPrompt;
 }
 const markCustom = () => { settings.preset = "custom"; $("cleanup-preset").value = "custom"; };
 
@@ -89,7 +86,6 @@ function bindSettings() {
     applyPreset(e.target.value); showCustom(false);
     $("cleanup-prompt").value = settings.cleanupPrompt; renderModelControls(); saveSettings();
   };
-  $("preset-note-ok").onclick = () => { settings.presetNote = false; $("preset-note").classList.add("hidden"); saveSettings(); };
   $("skip-words").onchange = (e) => { settings.skipRefineWords = Math.max(0, Math.min(50, parseInt(e.target.value, 10) || 0)); e.target.value = settings.skipRefineWords; saveSettings(); };
   $("refine-budget").onchange = (e) => { const v = Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 6)); e.target.value = v; settings.refineBudgetMs = v * 1000; saveSettings(); };
   $("timings-on").onchange = (e) => { settings.timings = e.target.checked; saveSettings(); };
@@ -148,7 +144,7 @@ function renderModelControls() {
   const eff = $("cleanup-effort");
   eff.innerHTML = "";
   eff.add(new Option("по умолчанию модели", ""));
-  const names = { none: "без рассуждения (быстрее всего)", low: "низкая (быстро)", medium: "средняя", high: "высокая", xhigh: "максимальная" };
+  const names = { none: "без рассуждения", low: "низкая", medium: "средняя", high: "высокая", xhigh: "максимальная" };
   const list = known ? known.efforts || [] : ["none", "low", "medium", "high", "xhigh"];
   for (const e of list) eff.add(new Option(names[e] || e, e));
   eff.disabled = !!known && !known.efforts;
@@ -158,7 +154,7 @@ function renderModelControls() {
 
 function promptMode() {
   if (settings.cleanupPrompt === CONFIG.strictCleanupPrompt) return CONFIG.presets[settings.preset]?.shots ? "strict+examples" : "strict";
-  return settings.cleanupPrompt === CONFIG.carefulCleanupPrompt ? "careful" : "custom";
+  return settings.cleanupPrompt === CONFIG.legacyCleanupPrompts[0] ? "long" : "custom";
 }
 
 /** The strict prompt comes with its wrapper (+ worked examples in «smart»); a hand-edited prompt is sent as is. */

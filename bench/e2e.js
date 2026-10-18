@@ -27,7 +27,7 @@ const mock = https.createServer({ key: fs.readFileSync(__dirname + '/mock.key'),
   }
   if (url.startsWith('/v1/responses')) {
     const p = JSON.parse(body.toString());
-    reqLog.push('rf:' + p.model + (p.reasoning ? ':' + p.reasoning.effort : '') + (p.stream ? ':stream' : ''));
+    reqLog.push('rf:' + p.model + (p.reasoning ? ':' + p.reasoning.effort : '') + (p.stream ? ':stream' : '') + (JSON.stringify(p.input).includes('<dictation>') ? ':wrap' : ''));
     if (S.rejectModels && S.rejectModels.includes(p.model)) { res.writeHead(400, { ...cors, 'content-type': 'application/json' }); return res.end('{"error":"model not available"}'); }
     const fast = /non-reasoning|4\.3/.test(p.model);
     await sleep(S.rf ?? (fast ? 350 : 3500));
@@ -102,7 +102,7 @@ const OLD_PROMPT = fs.readFileSync(__dirname + '/prompt_cur.txt', 'utf8');
     rows.forEach((m, i) => console.log(`   run${i + 1}: ${fmt(m)}`));
     console.log('   errors:', errs.length ? errs : 'none');
     if (isNew) {
-      console.log('   settings after load:', JSON.stringify(await page.evaluate(() => document.getElementById('cleanup-preset').value)), 'note visible:', await page.evaluate(() => !document.getElementById('preset-note').classList.contains('hidden')));
+      console.log('   settings after load:', JSON.stringify(await page.evaluate(() => document.getElementById('cleanup-preset').value)));
       const tm = await page.evaluate(async () => { const r = indexedDB.open('grokvoice', 1); const db = await new Promise(res => r.onsuccess = () => res(r.result)); return new Promise(res => { const q = db.transaction('kv').objectStore('kv').get('timings'); q.onsuccess = () => res(q.result); }); });
       console.log('   stored timings:', tm.length, 'sample:', JSON.stringify(tm[tm.length - 1]));
       const leak = JSON.stringify(tm).match(/слушай|короче|семи|вечера/i); console.log('   dictated text found in timings store:', !!leak);
@@ -149,6 +149,56 @@ const OLD_PROMPT = fs.readFileSync(__dirname + '/prompt_cur.txt', 'utf8');
     const { page, ctx } = await newPage({ ...oldSaved, preset: 'fast', cleanupModel: 'grok-4.20-0309-non-reasoning', cleanupEffort: '', cleanupPrompt: 'x', skipRefineWords: 40 });
     const m = await dictate(page);
     console.log(`[${LABEL}] skip refine (<40 words): ${fmt(m)}; requests=${JSON.stringify(reqLog)}`); await ctx.close();
+  }
+  if (isNew && want('export')) {
+    S = {}; reqLog.length = 0;
+    const { page, ctx } = await newPage({ ...oldSaved });
+    for (let i = 0; i < 2; i++) await dictate(page);
+    await page.click('[data-tab=settings]'); await page.waitForTimeout(300);
+    await page.evaluate(() => document.querySelectorAll('details').forEach(d => d.open = true));
+    console.log('[' + LABEL + '] export info:', await page.textContent('#export-info'));
+    for (const withAudio of [false, true]) {
+      await page.evaluate((v) => { document.getElementById('export-audio').checked = v; }, withAudio);
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export-download')]);
+      const p = await dl.path(); const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+      const h = j.history[j.history.length - 1];
+      console.log('[' + LABEL + '] export audio=' + withAudio + ': file', dl.suggestedFilename(), fs.statSync(p).size + 'B', 'entries', j.history.length, 'timings', j.timings.length,
+        'raw ok:', h.raw === RAW, 'text ok:', h.text === CLEAN, 'model', h.model, 'has audio:', !!h.audio, h.audio ? 'bytes ' + h.audio.bytes + ' b64len ' + h.audio.base64.length + ' decoded ' + Buffer.from(h.audio.base64, 'base64').length : '',
+        'entry.timing keys:', Object.keys(h.timing || {}).slice(0, 6).join(','));
+      console.log('   msg:', await page.textContent('#export-msg'));
+    }
+    const sent = reqLog.filter(x => !/^stt|^rf/.test(x)); console.log('[' + LABEL + '] unexpected network requests during export:', sent.length);
+    await ctx.close();
+  }
+  if (isNew && want('presets')) {
+    for (const pr of ['fast', 'fast43', 'smart']) {
+      S = { rf: 300 }; reqLog.length = 0;
+      const { page, ctx } = await newPage({ ...oldSaved });
+      await page.click('[data-tab=settings]'); await page.selectOption('#cleanup-preset', pr); await page.click('[data-tab=dictate]');
+      const m = await dictate(page);
+      const st = await page.evaluate(async () => { const r = indexedDB.open('grokvoice', 1); const db = await new Promise(res => r.onsuccess = () => res(r.result)); return new Promise(res => { const q = db.transaction('kv').objectStore('kv').get('settings'); q.onsuccess = () => res({ preset: q.result.preset, model: q.result.cleanupModel, effort: q.result.cleanupEffort, promptStart: q.result.cleanupPrompt.slice(0, 30) }); }); });
+      console.log('[' + LABEL + '] preset ' + pr + ': saved ' + JSON.stringify(st) + '; requests=' + JSON.stringify(reqLog) + '; clean ok: ' + (m.result === CLEAN));
+      await ctx.close();
+    }
+  }
+  if (isNew && want('migrate')) {
+    const cases = {
+      'no preset, stock': { ...oldSaved },
+      'preset classic': { ...oldSaved, preset: 'classic' },
+      'no preset, other model': { ...oldSaved, cleanupModel: 'grok-4.3', cleanupEffort: 'none' },
+      'no preset, edited prompt': { ...oldSaved, cleanupPrompt: 'my own prompt' },
+      'classic, edited effort': { ...oldSaved, preset: 'classic', cleanupEffort: 'high' },
+      'custom kept': { ...oldSaved, preset: 'custom', cleanupModel: 'grok-4.5', cleanupEffort: 'low', cleanupPrompt: 'mine' },
+      'smart kept': { ...oldSaved, preset: 'smart', cleanupModel: 'grok-4.7', cleanupEffort: 'low' },
+      'fast43 kept': { ...oldSaved, preset: 'fast43', cleanupModel: 'grok-4.3', cleanupEffort: 'none' },
+    };
+    for (const [name, saved] of Object.entries(cases)) {
+      const { page, ctx } = await newPage(saved);
+      const st = await page.evaluate(async () => { const r = indexedDB.open('grokvoice', 1); const db = await new Promise(res => r.onsuccess = () => res(r.result)); return new Promise(res => { const q = db.transaction('kv').objectStore('kv').get('settings'); q.onsuccess = () => res({ preset: q.result.preset, model: q.result.cleanupModel, effort: q.result.cleanupEffort, strict: /<dictation>/.test(q.result.cleanupPrompt), sel: document.getElementById('cleanup-preset').value, opts: [...document.getElementById('cleanup-preset').options].map(o => o.textContent).join(' | ') }); }); });
+      console.log('[' + LABEL + '] migrate ' + name + ': ' + JSON.stringify({ ...st, opts: undefined }));
+      if (name === 'no preset, stock') console.log('   options: ' + st.opts);
+      await ctx.close();
+    }
   }
   await browser.close(); mock.close(); stat.close(); process.exit(0);
 })().catch(e => { console.error('FAIL', e); process.exit(1); });

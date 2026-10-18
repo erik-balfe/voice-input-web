@@ -8,7 +8,7 @@ const audio = { short: "/tmp/a_short.webm", mid: "/tmp/a_mid.webm" };
 const N = Number(process.env.N || 5);
 const strict = { wrap: true, shots: [] }, strictShots = { wrap: true, shots: CONFIG.strictShots };
 const cfgs = [
-  { name: "BEFORE  grok-4.7 low, careful prompt, no stream", model: "grok-4.7", effort: "low", prompt: CONFIG.carefulCleanupPrompt, stream: false },
+  { name: "grok-4.7 low, long prompt, no stream", model: "grok-4.7", effort: "low", prompt: CONFIG.legacyCleanupPrompts[0], stream: false },
   { name: "AFTER fast: grok-4.20 non-reasoning, strict pack, stream", model: "grok-4.20-0309-non-reasoning", effort: "", prompt: CONFIG.strictCleanupPrompt, stream: true, pack: strict },
   { name: "smart: grok-4.7 low, strict pack + shots, stream", model: "grok-4.7", effort: "low", prompt: CONFIG.strictCleanupPrompt, stream: true, pack: strictShots },
   { name: "grok-4.3 none, strict pack, stream", model: "grok-4.3", effort: "none", prompt: CONFIG.strictCleanupPrompt, stream: true, pack: strict },
