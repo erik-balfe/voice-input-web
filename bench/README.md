@@ -8,3 +8,4 @@ Test audio is synthetic (xAI TTS, Russian phrases), not recordings of a person. 
 - `e2e.js`: Chromium test against a local mock `api.x.ai` (HTTPS with a self-signed cert, `--host-resolver-rules`, real chunked SSE).
   `node e2e.js <web dir> <label> [baseline|smart|budget|fallback|retry|skip|export|presets|migrate]`
 - `sse_test.mjs`: the SSE parser against a real captured response, split at arbitrary byte boundaries.
+- `ui.js`: theme (system/light/dark, theme-color), recorder states + timer, and the update flow with a real service worker behind a 10-minute HTTP cache. `node ui.js <web dir> <screenshots dir>`

@@ -3,6 +3,8 @@ import { kv, history } from "./db.js";
 import * as auth from "./auth.js";
 import { transcribe, cleanup, warmup, HttpError } from "./grok.js";
 import { Trace, timings, summarize } from "./metrics.js";
+import { initTheme } from "./theme.js";
+import { createUpdater } from "./update.js";
 import { exportFile, shareFile, downloadFile, estimate } from "./export.js";
 
 const $ = (id) => document.getElementById(id);
@@ -10,7 +12,7 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-18.4";
+const APP_VERSION = "2026-10-18.5";
 
 
 const settings = {
@@ -27,6 +29,7 @@ const settings = {
 };
 let resultEdited = false;
 
+let updater = null;
 let state = "idle"; // idle | recording | processing
 let rec = null; // { stream, recorder, chunks, mime, startedAt, ctx, raf, timer }
 
@@ -276,14 +279,16 @@ function pickMime() {
 }
 
 function setStatus(s) { $("status").textContent = s; }
+const fmtClock = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 function setState(s) {
   state = s;
   const btn = $("rec");
   btn.classList.toggle("recording", s === "recording");
   btn.classList.toggle("busy", s === "processing");
-  $("rec-icon").textContent = s === "recording" ? "■" : s === "processing" ? "…" : "●";
+  btn.setAttribute("aria-label", s === "recording" ? "Остановить запись" : s === "processing" ? "Обработка" : "Начать запись");
+  $("timer").classList.toggle("on", s === "recording");
   $("cancel").classList.toggle("hidden", s !== "recording");
-  if (s === "idle") releaseWakeLock(); else acquireWakeLock();
+  if (s === "idle") { releaseWakeLock(); updater?.flush(); } else acquireWakeLock();
 }
 
 // Keep the screen awake while recording/processing (best effort; iOS 16.4+). It does NOT survive an app switch.
@@ -318,9 +323,10 @@ async function startRecording() {
   startMeter(stream);
   rec.timer = setInterval(() => {
     const s = (Date.now() - rec.startedAt) / 1000;
-    $("timer").textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    $("timer").textContent = fmtClock(s);
     if (s >= MAX_TAKE_SEC) stopAndProcess(false);
   }, 250);
+  $("timer").textContent = fmtClock(0);
   setState("recording");
   setStatus("Говорите… Нажмите ещё раз, чтобы закончить");
 }
@@ -339,12 +345,15 @@ function startMeter(stream) {
     src.connect(an);
     const buf = new Uint8Array(an.fftSize);
     const ring = $("ring");
+    let lvl = 0;
     const tick = () => {
       an.getByteTimeDomainData(buf);
       let sum = 0;
       for (const v of buf) sum += ((v - 128) / 128) ** 2;
-      const rms = Math.sqrt(sum / buf.length);
-      ring.style.transform = `scale(${1 + Math.min(0.25, rms * 2.5)})`;
+      const target = Math.min(1, Math.sqrt(sum / buf.length) * 5);
+      lvl += (target - lvl) * (target > lvl ? 0.35 : 0.07); // quick attack, slow release: calm motion
+      ring.style.transform = `scale(${(1 + lvl * 0.5).toFixed(3)})`;
+      ring.style.opacity = (0.08 + lvl * 0.4).toFixed(3);
       rec && (rec.raf = requestAnimationFrame(tick));
     };
     rec.ctx = ctx;
@@ -359,8 +368,7 @@ function releaseRecorder() {
   cancelAnimationFrame(rec.raf);
   rec.ctx?.close?.().catch(() => {});
   rec.stream.getTracks().forEach((t) => t.stop()); // release the mic immediately
-  $("ring").style.transform = "";
-  $("timer").textContent = "";
+  $("ring").style.transform = ""; $("ring").style.opacity = "";
 }
 
 function stopRecorder() {
@@ -633,6 +641,19 @@ async function markInterrupted() {
 }
 
 async function boot() {
+  initTheme();
+  $("app-version").textContent = APP_VERSION;
+  updater = createUpdater({
+    current: APP_VERSION,
+    isBusy: () => state !== "idle" || resultEdited,
+    onStatus: (t) => { $("update-msg").textContent = t || ""; },
+    onAvailable: (v, failed) => {
+      $("update-banner").classList.toggle("hidden", !v);
+      if (v) $("update-banner-text").textContent = failed ? `Доступна версия ${v}` : state === "idle" ? `Доступна версия ${v}` : `Доступна версия ${v} — обновлю после записи`;
+    },
+  });
+  $("check-update").onclick = () => { $("update-msg").textContent = "Проверяю…"; updater.check({ manual: true }); };
+  $("update-now").onclick = () => updater.apply();
   bindSettings();
   await loadSettings();
   ready().then((ok) => ok && warmup(true));
@@ -650,7 +671,7 @@ async function boot() {
   await renderProxy();
   await renderAccount();
   navigator.storage?.persist?.().catch(() => {});
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  updater.start();
   const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   $("diag").textContent = `Версия ${APP_VERSION} · Микрофон: ${await micPermissionState()} · Формат записи: ${pickMime() || "по умолчанию"} · ${standalone ? "режим приложения" : "в браузере"} · ClipboardItem: ${window.ClipboardItem ? "да" : "нет"}`;
   if (AUTOSTART) {

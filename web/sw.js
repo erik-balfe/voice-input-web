@@ -1,6 +1,6 @@
 // App-shell cache only. API traffic (api.x.ai, auth proxy) is never touched.
-const CACHE = "grokvoice-v12";
-const SHELL = ["./", "index.html", "style.css", "app.js", "auth.js", "grok.js", "db.js", "config.js", "metrics.js", "export.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
+const CACHE = "grokvoice-2026-10-18.5"; // must equal APP_VERSION in app.js (checked in CI)
+const SHELL = ["./", "index.html", "style.css", "app.js", "auth.js", "grok.js", "db.js", "config.js", "metrics.js", "export.js", "theme.js", "update.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

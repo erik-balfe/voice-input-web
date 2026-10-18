@@ -19,6 +19,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check version consistency (app.js vs sw.js)
+        run: |
+          v=$(grep -oP 'APP_VERSION = "\K[^"]+' web/app.js)
+          grep -q "const CACHE = \"grokvoice-$v\"" web/sw.js || { echo "sw.js CACHE must be grokvoice-$v"; exit 1; }
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

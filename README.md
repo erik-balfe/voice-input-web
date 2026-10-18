@@ -17,6 +17,9 @@ Sign-in uses your Grok account (xAI OAuth device flow, same public client as
   tap, and the promise resolves once STT/cleanup finish, so Safari accepts the copy without a second tap.
 - `?autostart=1` starts recording on open (if the mic permission is already granted); otherwise one tap.
 
+- Updates: the page compares its `APP_VERSION` with the published `app.js` on launch and whenever it returns to the foreground, and reloads itself when idle (never during recording/processing; a banner offers the update instead). `sw.js` is registered with `updateViaCache: "none"`, serves the shell network-first with revalidation, and its cache name equals `APP_VERSION` (CI checks it). The version is shown in Settings → О приложении.
+- Theme: Settings → Оформление: Системная (default, `prefers-color-scheme`) / Светлая / Тёмная; `theme-color` follows the effective theme.
+
 No secrets in this repo. The client id is the public Grok CLI client.
 
 Russian setup guide: [docs/SETUP.ru.md](docs/SETUP.ru.md)
