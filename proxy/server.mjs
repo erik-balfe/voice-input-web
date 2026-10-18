@@ -34,9 +34,9 @@ const routes = {
 let hits = new Map();
 setInterval(() => { hits = new Map(); }, 60_000).unref();
 
-function log(method, route, status, ms) {
-  // Metadata only. Never bodies, headers or query strings.
-  console.log(`${new Date().toISOString()} ${method} ${route} ${status} ${ms}ms`);
+function log(method, route, status, ms, upMs) {
+  // Metadata only. Never bodies, headers or query strings. up= is the time spent waiting for auth.x.ai (ms = total in the proxy).
+  console.log(`${new Date().toISOString()} ${method} ${route} ${status} ${ms}ms${upMs != null ? ` up=${upMs}ms` : ""}`);
 }
 
 function corsHeaders(origin) {
@@ -81,7 +81,8 @@ const server = http.createServer(async (req, res) => {
   const route = matchRoute(url.pathname);
   const origin = req.headers.origin || "";
   const cors = ALLOWED_ORIGINS.has(origin) ? corsHeaders(origin) : {};
-  const done = (status) => log(req.method, route || "?", status, Date.now() - t0);
+  let upMs = null;
+  const done = (status) => log(req.method, route || "?", status, Date.now() - t0, upMs);
 
   if (route === "/healthz") { send(res, 200, { "Content-Type": "text/plain" }, "ok"); return done(200); }
   if (!route) { send(res, 404, cors, ""); return done(404); }
@@ -96,8 +97,9 @@ const server = http.createServer(async (req, res) => {
   if (n > RATE_PER_MIN) { send(res, 429, cors, "rate limited"); return done(429); }
 
   try {
-    let upstream;
+    let upstream, tUp;
     if (req.method === "GET") {
+      tUp = Date.now();
       upstream = await fetch(UPSTREAM + route, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
     } else {
       const ctype = String(req.headers["content-type"] || "");
@@ -112,6 +114,7 @@ const server = http.createServer(async (req, res) => {
       if (route === "/oauth2/token" && !ALLOWED_GRANTS.has(form.get("grant_type") || "")) {
         send(res, 400, { ...cors, "Content-Type": "application/json" }, '{"error":"grant_not_allowed"}'); return done(400);
       }
+      tUp = Date.now();
       upstream = await fetch(UPSTREAM + route, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -120,6 +123,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     const text = await upstream.text();
+    upMs = Date.now() - tUp;
     send(res, upstream.status, { ...cors, "Content-Type": upstream.headers.get("content-type") || "application/json" }, text);
     done(upstream.status);
   } catch (e) {

@@ -1,6 +1,6 @@
 // App-shell cache only. API traffic (api.x.ai, auth proxy) is never touched.
-const CACHE = "grokvoice-v7";
-const SHELL = ["./", "index.html", "style.css", "app.js", "auth.js", "grok.js", "db.js", "config.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
+const CACHE = "grokvoice-v8";
+const SHELL = ["./", "index.html", "style.css", "app.js", "auth.js", "grok.js", "db.js", "config.js", "metrics.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

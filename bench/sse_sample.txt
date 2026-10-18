@@ -1,0 +1,70 @@
+200 text/event-stream
+event: response.created
+data: {"sequence_number":0,"type":"response.created","response":{"created_at":1792306119,"completed_at":null,"id":"a9d7be64-ddec-97ad-9de7-a4a5c27cea96","max_output_tokens":null,"model":"grok-4.20-0309-non-reasoning","object":"response","output":[],"parallel_tool_calls":true,"previous_response_id":null,"reasoning":{"effort":null,"summary":null},"temperature":0.699999988079071,"text":{"format":{"type":"text"}},"tool_choice":"auto","tools":[],"top_p":0.949999988079071,"usage":null,"user":null,"incomplete_details":null,"status":"in_progress","store":false,"metadata":{"system_fingerprint":"fp_41d52165d8"},"background":false,"service_tier":"default","truncation":"disabled","top_logprobs":0,"presence_penalty":0.0,"frequency_penalty":0.0,"prompt_cache_key":null,"max_tool_calls":null,"safety_identifier":null,"error":null,"instructions":null}}
+
+event: response.in_progress
+data: {"sequence_number":1,"type":"response.in_progress","response":{"created_at":1792306119,"completed_at":null,"id":"a9d7be64-ddec-97ad-9de7-a4a5c27cea96","max_output_tokens":null,"model":"grok-4.20-0309-non-reasoning","object":"response","output":[],"parallel_tool_calls":true,"previous_response_id":null,"reasoning":{"effort":null,"summary":null},"temperature":0.699999988079071,"text":{"format":{"type":"text"}},"tool_choice":"auto","tools":[],"top_p":0.949999988079071,"usage":null,"user":null,"incomplete_details":null,"status":"in_progress","store":false,"metadata":{"system_fingerprint":"fp_41d52165d8"},"background":false,"service_tier":"default","truncation":"disabled","top_logprobs":0,"presence_penalty":0.0,"frequency_penalty":0.0,"prompt_cache_key":null,"max_tool_calls":null,"safety_identifier":null,"error":null,"instructions":null}}
+
+event: response.output_item.added
+data: {"sequence_number":2,"type":"response.output_item.added","item":{"content":[],"id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","role":"assistant","type":"message","status":"in_progress"},"output_index":0}
+
+event: response.content_part.added
+data: {"sequence_number":3,"type":"response.content_part.added","content_index":0,"item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"part":{"type":"output_text","text":"","logprobs":[],"annotations":[]}}
+
+event: response.output_text.delta
+data: {"sequence_number":4,"type":"response.output_text.delta","content_index":0,"delta":"Я","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":5,"type":"response.output_text.delta","content_index":0,"delta":" сегодня","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":6,"type":"response.output_text.delta","content_index":0,"delta":" буду","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":7,"type":"response.output_text.delta","content_index":0,"delta":" около","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":8,"type":"response.output_text.delta","content_index":0,"delta":" семи","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":9,"type":"response.output_text.delta","content_index":0,"delta":" веч","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":10,"type":"response.output_text.delta","content_index":0,"delta":"ера","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":11,"type":"response.output_text.delta","content_index":0,"delta":".","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":12,"type":"response.output_text.delta","content_index":0,"delta":" Так","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":13,"type":"response.output_text.delta","content_index":0,"delta":" что","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":14,"type":"response.output_text.delta","content_index":0,"delta":" начина","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":15,"type":"response.output_text.delta","content_index":0,"delta":"йте","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":16,"type":"response.output_text.delta","content_index":0,"delta":" без","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":17,"type":"response.output_text.delta","content_index":0,"delta":" меня","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.delta
+data: {"sequence_number":18,"type":"response.output_text.delta","content_index":0,"delta":".","item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"logprobs":[]}
+
+event: response.output_text.done
+data: {"sequence_number":19,"type":"response.output_text.done","content_index":0,"item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"text":"Я сегодня буду около семи вечера. Так что начинайте без меня.","logprobs":[]}
+
+event: response.content_part.done
+data: {"sequence_number":20,"type":"response.content_part.done","content_index":0,"item_id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","output_index":0,"part":{"type":"output_text","text":"Я сегодня буду около семи вечера. Так что начинайте без меня.","logprobs":[],"annotations":[]}}
+
+event: response.output_item.done
+data: {"sequence_number":21,"type":"response.output_item.done","item":{"content":[{"type":"output_text","text":"Я сегодня буду около семи вечера. Так что начинайте без меня.","logprobs":[],"annotations":[]}],"id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","role":"assistant","type":"message","status":"completed"},"output_index":0}
+
+event: response.completed
+data: {"sequence_number":22,"type":"response.completed","response":{"created_at":1792306119,"completed_at":1792306119,"id":"a9d7be64-ddec-97ad-9de7-a4a5c27cea96","max_output_tokens":null,"model":"grok-4.20-0309-non-reasoning","object":"response","output":[{"content":[{"type":"output_text","text":"Я сегодня буду около семи вечера. Так что начинайте без меня.","logprobs":[],"annotations":[]}],"id":"msg_a9d7be64-ddec-97ad-9de7-a4a5c27cea96","role":"assistant","type":"message","status":"completed"}],"parallel_tool_calls":true,"previous_response_id":null,"reasoning":{"effort":null,"summary":null},"temperature":0.699999988079071,"text":{"format":{"type":"text"}},"tool_choice":"auto","tools":[],"top_p":0.949999988079071,"usage":{"input_tokens":505,"input_tokens_details":{"cached_tokens":384},"output_tokens":15,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":520,"num_sources_used":0,"num_server_side_tools_used":0,"cost_in_usd_ticks":2655500,"context_details":{"input_tokens":505,"output_tokens":20}},"user":null,"incomplete_details":null,"status":"completed","store":false,"metadata":{"system_fingerprint":"fp_41d52165d8"},"background":false,"service_tier":"default","truncation":"disabled","top_logprobs":0,"presence_penalty":0.0,"frequency_penalty":0.0,"prompt_cache_key":null,"max_tool_calls":null,"safety_identifier":null,"error":null,"instructions":null}}
+

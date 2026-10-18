@@ -13,6 +13,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://api.x.ai" crossorigin>
+  <link rel="dns-prefetch" href="https://api.x.ai">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -27,6 +29,7 @@
 
   <main>
     <section id="tab-dictate" class="panel active">
+      <div id="preset-note" class="hint hidden">Чистка теперь по умолчанию быстрая (Grok 4.20 без рассуждения, около 0,5 с вместо 3–9 с). Прежний режим: Настройки → Режим чистки → «Аккуратно». <button id="preset-note-ok" class="secondary">Понятно</button></div>
       <div id="signin-hint" class="hint hidden">Сначала войдите: <a href="#" data-goto="settings">Настройки → Войти через xAI</a></div>
       <div id="status" class="status">Нажмите, чтобы начать запись</div>
       <button id="rec" class="rec" aria-label="Запись">
@@ -87,6 +90,19 @@
       </label>
       <label class="toggle"><input type="checkbox" id="cleanup"> Чистить и сокращать текст через Grok</label>
       <label class="toggle"><input type="checkbox" id="autocopy" checked> Автокопирование по «Стоп»</label>
+      <label>Режим чистки
+        <select id="cleanup-preset">
+          <option value="fast">Быстро — Grok 4.20 без рассуждения (~0,5 с)</option>
+          <option value="smart">Аккуратно — Grok 4.7, effort low (3–9 с)</option>
+          <option value="custom">Своя настройка</option>
+        </select>
+      </label>
+      <label>Не чистить короткие диктовки: меньше N слов (0 = чистить всегда)
+        <input id="skip-words" type="number" min="0" max="50" inputmode="numeric">
+      </label>
+      <label>Ждать чистый текст не дольше, секунд (потом в буфер идёт сырой, чистый заменит его)
+        <input id="refine-budget" type="number" min="1" max="30" inputmode="numeric">
+      </label>
         <label>Модель <select id="cleanup-model-select"></select></label>
         <label id="custom-model-wrap" class="hidden">Своя модель (ID) <input id="cleanup-model-custom" type="text" autocomplete="off" placeholder="например grok-4.7"></label>
         <label>Глубина рассуждения <select id="cleanup-effort"></select></label>
@@ -94,6 +110,14 @@
         <summary>Промпт чистки</summary>
         <label>Промпт <textarea id="cleanup-prompt" rows="7"></textarea></label>
         <button id="reset-prompt" class="secondary">Сбросить по умолчанию</button>
+      </details>
+
+      <h2>Диагностика скорости</h2>
+      <details>
+        <summary>Тайминги последних диктовок</summary>
+        <label class="toggle"><input type="checkbox" id="timings-on"> Записывать тайминги (только числа, без текста диктовки)</label>
+        <div id="diag-stats"></div>
+        <div class="row"><button id="diag-copy" class="secondary">Скопировать JSON</button><button id="diag-clear" class="secondary">Очистить</button><span id="diag-msg" class="small"></span></div>
       </details>
 
       <h2>О приложении</h2>

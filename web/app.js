@@ -1,24 +1,31 @@
 import { CONFIG } from "./config.js";
 import { kv, history } from "./db.js";
 import * as auth from "./auth.js";
-import { transcribe, cleanup, HttpError } from "./grok.js";
+import { transcribe, cleanup, warmup, HttpError } from "./grok.js";
+import { Trace, timings, summarize } from "./metrics.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-13.2";
+const APP_VERSION = "2026-10-18.1";
 
 
 const settings = {
   language: "ru",
   cleanup: false,
   autocopy: true,
-  cleanupModel: CONFIG.defaultCleanupModel,
-  cleanupEffort: CONFIG.defaultCleanupEffort, // "" = model default (not sent)
-  cleanupPrompt: CONFIG.defaultCleanupPrompt,
+  preset: CONFIG.defaultPreset, // fast | smart | custom
+  cleanupModel: CONFIG.presets[CONFIG.defaultPreset].model,
+  cleanupEffort: CONFIG.presets[CONFIG.defaultPreset].effort, // "" = model default (not sent)
+  cleanupPrompt: CONFIG.fastCleanupPrompt,
+  skipRefineWords: 0, // 0 = always refine; N = skip refine for dictations shorter than N words
+  refineBudgetMs: CONFIG.refineBudgetMs,
+  timings: true, // numeric timings only, never dictated text
+  presetNote: false, // one-time notice after migration to the fast preset
 };
+let resultEdited = false;
 
 let state = "idle"; // idle | recording | processing
 let rec = null; // { stream, recorder, chunks, mime, startedAt, ctx, raf, timer }
@@ -27,22 +34,26 @@ let rec = null; // { stream, recorder, chunks, mime, startedAt, ctx, raf, timer 
 async function loadSettings() {
   const saved = (await kv.get("settings")) || {};
   Object.assign(settings, saved);
-  // Migrate old defaults; keep anything the user chose deliberately.
+  // Migrate: users who never changed the old default (grok-4.7 low + careful prompt) move to the fast preset once.
   let migrated = false;
-  if (!saved.cleanupModel || CONFIG.legacyCleanupModels.includes(saved.cleanupModel)) {
-    if (settings.cleanupModel !== CONFIG.defaultCleanupModel) migrated = true;
-    settings.cleanupModel = CONFIG.defaultCleanupModel;
-    settings.cleanupEffort = CONFIG.defaultCleanupEffort;
-  }
-  if (!saved.cleanupPrompt || CONFIG.legacyCleanupPrompts.includes(saved.cleanupPrompt.trim())) {
-    if (saved.cleanupPrompt) migrated = true;
-    settings.cleanupPrompt = CONFIG.defaultCleanupPrompt;
+  if (!saved.preset) {
+    const oldPrompts = [CONFIG.carefulCleanupPrompt, ...CONFIG.legacyCleanupPrompts];
+    const untouched = (!saved.cleanupModel || saved.cleanupModel === "grok-4.7" || CONFIG.legacyCleanupModels.includes(saved.cleanupModel))
+      && (!saved.cleanupPrompt || oldPrompts.includes(saved.cleanupPrompt.trim()));
+    if (untouched) { applyPreset(CONFIG.defaultPreset); settings.presetNote = !!saved.cleanupModel; }
+    else settings.preset = "custom";
+    migrated = true;
   }
   if (migrated) await saveSettings();
   $("language").value = settings.language;
   $("cleanup").checked = settings.cleanup;
   $("cleanup-quick").checked = settings.cleanup;
   $("autocopy").checked = settings.autocopy;
+  $("cleanup-preset").value = settings.preset;
+  $("skip-words").value = settings.skipRefineWords;
+  $("refine-budget").value = Math.round(settings.refineBudgetMs / 1000);
+  $("timings-on").checked = settings.timings !== false;
+  $("preset-note").classList.toggle("hidden", !settings.presetNote);
   renderModelControls();
   $("cleanup-prompt").value = settings.cleanupPrompt;
   $("use-apikey").checked = ((await kv.get("authMode")) || "oauth") === "apikey";
@@ -50,23 +61,46 @@ async function loadSettings() {
 }
 const saveSettings = () => kv.set("settings", { ...settings });
 
+function applyPreset(name) {
+  const p = CONFIG.presets[name];
+  if (!p) { settings.preset = "custom"; return; }
+  settings.preset = name;
+  settings.cleanupModel = p.model;
+  settings.cleanupEffort = p.effort;
+  settings.cleanupPrompt = name === "fast" ? CONFIG.fastCleanupPrompt : CONFIG.carefulCleanupPrompt;
+}
+const markCustom = () => { settings.preset = "custom"; $("cleanup-preset").value = "custom"; };
+
 function bindSettings() {
   $("language").onchange = (e) => { settings.language = e.target.value; saveSettings(); };
   const setCleanup = (v) => { settings.cleanup = v; $("cleanup").checked = v; $("cleanup-quick").checked = v; saveSettings(); };
   $("cleanup").onchange = (e) => setCleanup(e.target.checked);
   $("cleanup-quick").onchange = (e) => setCleanup(e.target.checked);
   $("autocopy").onchange = (e) => { settings.autocopy = e.target.checked; saveSettings(); };
+  $("cleanup-preset").onchange = (e) => {
+    if (e.target.value === "custom") { settings.preset = "custom"; saveSettings(); return; }
+    applyPreset(e.target.value); showCustom(false);
+    $("cleanup-prompt").value = settings.cleanupPrompt; renderModelControls(); saveSettings();
+  };
+  $("preset-note-ok").onclick = () => { settings.presetNote = false; $("preset-note").classList.add("hidden"); saveSettings(); };
+  $("skip-words").onchange = (e) => { settings.skipRefineWords = Math.max(0, Math.min(50, parseInt(e.target.value, 10) || 0)); e.target.value = settings.skipRefineWords; saveSettings(); };
+  $("refine-budget").onchange = (e) => { const v = Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 6)); e.target.value = v; settings.refineBudgetMs = v * 1000; saveSettings(); };
+  $("timings-on").onchange = (e) => { settings.timings = e.target.checked; saveSettings(); };
+  $("diag-copy").onclick = async () => { const list = await timings.list(); const ok = await copyText(JSON.stringify({ app: APP_VERSION, runs: list }, null, 1)); $("diag-msg").textContent = ok ? `Скопировано: ${list.length} замеров` : "Не удалось скопировать"; };
+  $("diag-clear").onclick = async () => { await timings.clear(); renderDiagnostics(); };
   $("cleanup-model-select").onchange = (e) => {
+    markCustom();
     const v = e.target.value;
     if (v === "__custom") { settings.cleanupModel = $("cleanup-model-custom").value.trim() || settings.cleanupModel; showCustom(true); }
     else { settings.cleanupModel = v; const m = modelInfo(v); settings.cleanupEffort = m?.efforts ? m.defaultEffort : ""; }
     saveSettings(); renderModelControls();
   };
-  $("cleanup-model-custom").onchange = (e) => { const v = e.target.value.trim(); if (v) { settings.cleanupModel = v; saveSettings(); renderModelControls(); } };
-  $("cleanup-effort").onchange = (e) => { settings.cleanupEffort = e.target.value; saveSettings(); };
-  $("cleanup-prompt").onchange = (e) => { settings.cleanupPrompt = e.target.value.trim() || CONFIG.defaultCleanupPrompt; saveSettings(); };
+  $("cleanup-model-custom").onchange = (e) => { const v = e.target.value.trim(); if (v) { markCustom(); settings.cleanupModel = v; saveSettings(); renderModelControls(); } };
+  $("cleanup-effort").onchange = (e) => { markCustom(); settings.cleanupEffort = e.target.value; saveSettings(); };
+  $("cleanup-prompt").onchange = (e) => { markCustom(); settings.cleanupPrompt = e.target.value.trim() || CONFIG.fastCleanupPrompt; saveSettings(); };
   $("reset-prompt").onclick = () => {
-    settings.cleanupModel = CONFIG.defaultCleanupModel; settings.cleanupPrompt = CONFIG.defaultCleanupPrompt;
+    applyPreset(CONFIG.defaultPreset); showCustom(false);
+    $("cleanup-preset").value = settings.preset;
     renderModelControls(); $("cleanup-prompt").value = settings.cleanupPrompt; saveSettings();
   };
   $("use-apikey").onchange = async (e) => { await kv.set("authMode", e.target.checked ? "apikey" : "oauth"); renderAccount(); };
@@ -97,16 +131,22 @@ function renderModelControls() {
   eff.value = settings.cleanupEffort || "";
 }
 
-/** Cleanup with automatic fallback when the chosen model is rejected (e.g. not available to the OAuth token). */
-async function runCleanup(raw) {
-  try {
-    const effort = settings.cleanupEffort || "";
-    return { text: await cleanup(raw, settings.cleanupModel, settings.cleanupPrompt, effort || undefined), note: "", model: settings.cleanupModel, effort };
-  } catch (e) {
-    const fb = CONFIG.fallbackCleanupModel;
-    if (!(e instanceof HttpError) || ![400, 403, 404].includes(e.status) || settings.cleanupModel === fb) throw e;
-    const text = await cleanup(raw, fb, settings.cleanupPrompt, modelInfo(fb).defaultEffort);
-    return { text, model: fb, effort: modelInfo(fb).defaultEffort, note: `Модель ${settings.cleanupModel} отклонена (${e.message.slice(0, 120)}), использована ${fb}` };
+/** Cleanup with automatic fallback when the chosen model is rejected (retired / not in the OAuth plan). */
+async function runCleanup(raw, trace, onDelta) {
+  const first = { model: settings.cleanupModel, effort: settings.cleanupEffort || "" };
+  const tries = [first, ...CONFIG.fallbackChain.filter((f) => f.model !== first.model)];
+  let firstErr;
+  for (let i = 0; i < tries.length; i++) {
+    const t = tries[i];
+    trace.m.model = t.model; trace.m.effort = t.effort || "";
+    try {
+      const text = await cleanup(raw, t.model, settings.cleanupPrompt, t.effort || undefined, { trace, onDelta });
+      return { text, model: t.model, effort: t.effort || "", note: i ? `Модель ${first.model} отклонена (${String(firstErr.message).slice(0, 120)}), использована ${t.model}` : "" };
+    } catch (e) {
+      firstErr = firstErr || e;
+      trace.note(`rf model ${t.model}: ${e.status || e.name}`);
+      if (!(e instanceof HttpError) || ![400, 403, 404].includes(e.status) || i === tries.length - 1) throw i ? firstErr : e;
+    }
   }
 }
 
@@ -115,6 +155,7 @@ function showTab(name) {
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${name}`));
   if (name === "history") renderHistory();
+  if (name === "settings") renderDiagnostics();
 }
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 document.querySelectorAll("[data-goto]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); showTab(a.dataset.goto); }));
@@ -210,11 +251,20 @@ function setState(s) {
   btn.classList.toggle("busy", s === "processing");
   $("rec-icon").textContent = s === "recording" ? "■" : s === "processing" ? "…" : "●";
   $("cancel").classList.toggle("hidden", s !== "recording");
+  if (s === "idle") releaseWakeLock(); else acquireWakeLock();
 }
+
+// Keep the screen awake while recording/processing (best effort; iOS 16.4+). It does NOT survive an app switch.
+let wakeLock = null;
+async function acquireWakeLock() {
+  try { if (!wakeLock && navigator.wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => (wakeLock = null)); } } catch (_) {}
+}
+function releaseWakeLock() { try { wakeLock?.release(); } catch (_) {} wakeLock = null; }
 
 async function startRecording() {
   if (state !== "idle") return;
   if (!(await ready())) { setStatus("Сначала войдите в настройках"); showTab("settings"); return; }
+  warmup(true); // open TLS/H2 to api.x.ai and refresh the token while the user is still speaking
   if (!navigator.mediaDevices?.getUserMedia) { setStatus("Браузер не поддерживает запись"); return; }
   const mime = pickMime();
   if (mime === null) { setStatus("MediaRecorder не поддерживается"); return; }
@@ -303,65 +353,125 @@ async function cancelRecording() {
   setStatus("Отменено");
 }
 
-/** Full pipeline for one take. Resolves to the final text. */
-async function processTake(take, existingId) {
+const fmtS = (ms) => (ms == null ? "–" : (ms / 1000).toFixed(1).replace(".", ",") + " с");
+const countWords = (t) => (t.match(/[\p{L}\p{N}]+/gu) || []).length;
+
+/** Full pipeline for one take. hooks: onRaw(raw, willRefine), onDelta(partial), onFinal(text). Resolves to {text, raw, trace}. */
+async function processTake(take, existingId, hooks = {}) {
   if (take.seconds < MIN_TAKE_SEC || take.blob.size < 1000) throw new Error("Слишком короткая запись");
+  const trace = take.trace || new Trace({ preset: settings.preset });
+  Object.assign(trace.m, { seconds: +take.seconds.toFixed(1), audioBytes: take.blob.size, mime: String(take.mime).split(";")[0], rerun: !!existingId, stream: true });
   const entry = existingId
     ? await history.get(existingId)
     : { createdAt: Date.now(), seconds: take.seconds, mime: take.mime, audio: take.blob, raw: "", text: "", error: "" };
-  if (!existingId) { entry.id = await history.add(entry); await history.trim(CONFIG.maxHistory); }
+  if (!existingId) { entry.id = await history.add(entry); history.trim(CONFIG.maxHistory).catch(() => {}); }
+  trace.mark("saved_audio");
   try {
     setStatus("Распознаю…");
-    entry.raw = await transcribe(entry.audio, settings.language);
+    entry.raw = await transcribe(entry.audio, settings.language, trace);
+    trace.mark("stt_done");
     entry.text = entry.raw;
     entry.error = "";
     entry.model = ""; entry.effort = "";
-    if (settings.cleanup) {
+    const words = countWords(entry.raw);
+    Object.assign(trace.m, { words, chars: entry.raw.length });
+    const willRefine = settings.cleanup && !(settings.skipRefineWords > 0 && words < settings.skipRefineWords);
+    if (settings.cleanup && !willRefine) trace.note(`refine skipped: < ${settings.skipRefineWords} words`);
+    hooks.onRaw?.(entry.raw, willRefine); // the raw text is on screen (and the clipboard when no refine) right now
+    if (willRefine) {
       setStatus("Чищу текст…");
       try {
-        const r = await runCleanup(entry.raw);
+        const r = await runCleanup(entry.raw, trace, hooks.onDelta);
         entry.text = r.text; entry.error = r.note; entry.model = r.model; entry.effort = r.effort;
       }
-      catch (e) { entry.error = `Чистка не удалась, оставлен исходный текст: ${e.message}`; }
+      catch (e) { entry.error = `Чистка не удалась, оставлен исходный текст: ${e.message}`; trace.note(`refine failed: ${e.status || e.name}`); }
+      trace.mark("refine_done");
     }
+    entry.timing = { stt: trace.ev.stt_total ?? null, refine: trace.ev.rf_total ?? null };
+    hooks.onFinal?.(entry.text);
+    $("result-meta").textContent = describeModel(entry, trace);
     await history.put(entry);
-    $("result-meta").textContent = describeModel(entry);
-    return entry.text;
+    return { text: entry.text, raw: entry.raw, trace };
   } catch (e) {
     entry.error = e.message || String(e);
+    trace.note(`failed: ${e.status || e.name || "error"}`);
     await history.put(entry);
+    e.trace = trace;
     throw e;
   }
 }
 
-/** Called from the Stop tap. Clipboard write is started synchronously, inside the gesture. */
+async function commitTrace(trace, outcome) {
+  trace.mark("end");
+  trace.set("outcome", outcome);
+  try { if (await timings.enabled()) { await timings.add(trace); if ($("tab-settings").classList.contains("active")) renderDiagnostics(); } } catch (_) {}
+}
+
+const deferred = () => { const d = {}; d.promise = new Promise((res, rej) => { d.resolve = res; d.reject = rej; }); d.promise.catch(() => {}); return d; };
+
+/** Called from the Stop tap. The clipboard write is started synchronously, inside the gesture, with a promise for the text:
+ *  raw text when there is no refine, the clean text when it arrives within the budget, else the raw text (clean replaces it later). */
 function stopAndProcess(fromGesture) {
   if (state !== "recording") return;
   setState("processing");
-  const textPromise = stopRecorder().then((take) => processTake(take));
+  resultEdited = false; pendingCopy = null;
+  $("copy").classList.remove("pulse");
+  const trace = new Trace({ preset: settings.preset });
+  const clip = deferred();
+  let clipText = null, budgetTimer = null, outcome = "error";
+  const hooks = {
+    onRaw: (raw, willRefine) => {
+      showResult(raw, willRefine ? "raw" : "");
+      if (!willRefine) clip.resolve(raw);
+      else budgetTimer = setTimeout(() => { trace.note("refine over budget: raw → clipboard"); clip.resolve(raw); }, settings.refineBudgetMs);
+    },
+    onDelta: (partial) => { if (!resultEdited) showResult(partial, "stream"); },
+    onFinal: (text) => { clearTimeout(budgetTimer); if (!resultEdited) showResult(text, ""); clip.resolve(text); },
+  };
+  const work = stopRecorder().then((take) => { trace.mark("finalize"); take.trace = trace; return processTake(take, undefined, hooks); });
+  work.catch((e) => { clearTimeout(budgetTimer); clip.reject(e); });
   let copyPromise = null;
   if (fromGesture && settings.autocopy && window.ClipboardItem && navigator.clipboard?.write) {
     try {
-      const item = new ClipboardItem({ "text/plain": textPromise.then((t) => new Blob([t], { type: "text/plain" })) });
+      const item = new ClipboardItem({ "text/plain": clip.promise.then((t) => { clipText = t; trace.mark("clipboard_text"); return new Blob([t], { type: "text/plain" }); }) });
       copyPromise = navigator.clipboard.write([item]);
     } catch (_) { copyPromise = null; }
   }
-  textPromise
-    .then(async (text) => {
-      showResult(text);
+  work
+    .then(async ({ text }) => {
+      clip.resolve(text);
+      outcome = trace.ev.rf_total != null ? "ok_refined" : "ok";
+      if (resultEdited) { setStatus("Готово. Чистый текст не подставлен: вы уже правили поле (он в Истории)"); return; }
       if (copyPromise) {
-        try { await copyPromise; flashCopied("Скопировано ✓"); setStatus("Готово — текст в буфере обмена"); }
-        catch (_) { setStatus("Готово — нажмите «Скопировать»"); }
+        try {
+          await copyPromise; trace.mark("clipboard_done");
+          if (clipText === text) { flashCopied("Скопировано ✓"); setStatus("Готово — текст в буфере обмена"); }
+          else await lateClean(text);
+        } catch (_) { outcome += "_nocopy"; setStatus("Готово — нажмите «Скопировать»"); pendingCopy = text; }
       } else {
-        setStatus("Готово — нажмите «Скопировать»");
+        setStatus("Готово — нажмите «Скопировать»"); pendingCopy = text;
       }
     })
     .catch((e) => { copyPromise?.catch(() => {}); setStatus(`Ошибка: ${e.message || e}`); })
-    .finally(() => setState("idle"));
+    .finally(async () => { setState("idle"); await commitTrace(trace, outcome); });
 }
 
-function showResult(text) {
-  $("result").value = text;
+/** The clipboard already holds the raw text; the clean text arrived later. Try to replace it, otherwise ask for a tap. */
+let pendingCopy = null;
+async function lateClean(text) {
+  try { await navigator.clipboard.writeText(text); flashCopied("Скопировано ✓"); setStatus("Готово — чистый текст в буфере обмена"); }
+  catch (_) {
+    pendingCopy = text;
+    setStatus("Чистый текст готов (в буфере пока сырой) — нажмите «Скопировать»");
+    $("copy").classList.add("pulse");
+  }
+}
+
+function showResult(text, mode = "") {
+  const el = $("result");
+  el.value = text;
+  el.classList.toggle("raw", mode === "raw");
+  el.classList.toggle("stream", mode === "stream");
   $("copy").disabled = !text;
 }
 
@@ -386,12 +496,13 @@ $("rec").onclick = () => {
   else if (state === "recording") stopAndProcess(true);
 };
 $("cancel").onclick = cancelRecording;
-$("copy").onclick = () => copyText($("result").value);
-$("result").oninput = () => ($("copy").disabled = !$("result").value);
+$("copy").onclick = () => { pendingCopy = null; $("copy").classList.remove("pulse"); copyText($("result").value); };
+$("result").oninput = () => { resultEdited = true; $("copy").disabled = !$("result").value; };
 
-function describeModel(e) {
-  if (!e.model) return "без чистки (только распознавание)";
-  return `модель ${e.model}, effort ${e.effort || "по умолчанию"}`;
+function describeModel(e, trace) {
+  const t = trace ? ` · распознавание ${fmtS(trace.ev.stt_total)}${trace.ev.rf_total != null ? `, чистка ${fmtS(trace.ev.rf_total)}` : ""}, всего ${fmtS(trace.ev.refine_done ?? trace.ev.stt_done)}` : "";
+  if (!e.model) return "без чистки (только распознавание)" + t;
+  return `модель ${e.model}, effort ${e.effort || "по умолчанию"}` + t;
 }
 
 // ---------- history ----------
@@ -429,8 +540,8 @@ async function renderHistory() {
       mk("▶︎", () => { const a = new Audio(URL.createObjectURL(e.audio)); a.play().catch(() => {}); });
       mk("Распознать заново", async (ev) => {
         ev.target.disabled = true;
-        try { const t = await processTake({ seconds: e.seconds, blob: e.audio, mime: e.mime }, e.id); showResult(t); }
-        catch (err) { alert(err.message || err); }
+        try { const t = await processTake({ seconds: e.seconds, blob: e.audio, mime: e.mime }, e.id); showResult(t.text); await commitTrace(t.trace, "rerun_ok"); }
+        catch (err) { if (err.trace) await commitTrace(err.trace, "rerun_error"); alert(err.message || err); }
         renderHistory();
       });
     }
@@ -457,10 +568,45 @@ async function autostart() {
   }
 }
 
+// ---------- diagnostics ----------
+const DIAG_COLS = [["stt_total", "STT"], ["stt_token", "токен"], ["rf_first", "чистка: 1-й токен"], ["rf_total", "чистка"], ["refine_done", "до чистого текста"], ["clipboard_done", "до буфера"]];
+
+async function renderDiagnostics() {
+  const list = await timings.list();
+  const box = $("diag-stats");
+  const ok = list.filter((e) => String(e.outcome || "").startsWith("ok"));
+  const st = summarize(ok, DIAG_COLS.map((c) => c[0]));
+  let html = `<table class="diag"><tr><th>этап, мс</th><th>n</th><th>p50</th><th>p95</th></tr>`;
+  for (const [k, label] of DIAG_COLS) html += `<tr><td>${label}</td><td>${st[k].n}</td><td>${st[k].p50 ?? "–"}</td><td>${st[k].p95 ?? "–"}</td></tr>`;
+  html += `</table>`;
+  const rows = list.slice(-10).reverse().map((e) =>
+    `<tr><td>${new Date(e.at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</td><td>${e.seconds ?? "–"}с/${e.words ?? "–"}сл</td><td>${e.stt_total ?? "–"}</td><td>${e.rf_total ?? "–"}</td><td>${e.refine_done ?? e.stt_done ?? "–"}</td><td>${(e.model || "").replace("grok-", "").replace("-0309-non-reasoning", "-nr") || "–"}</td><td>${e.outcome || ""}</td></tr>`).join("");
+  box.innerHTML = list.length ? html + `<table class="diag"><tr><th>время</th><th>длина</th><th>STT</th><th>чистка</th><th>всего</th><th>модель</th><th></th></tr>${rows}</table>` : `<p class="small">Замеров пока нет — продиктуйте что-нибудь.</p>`;
+}
+
 // ---------- boot ----------
+async function markInterrupted() {
+  // Entries left without text/error by a previous page life (iOS killed the tab mid-request).
+  for (const e of await history.list()) {
+    if (e.audio && !e.raw && !e.error) { e.error = "Прервано: приложение было свёрнуто или закрыто во время обработки. Нажмите «Распознать заново»."; await history.put(e); }
+  }
+}
+
 async function boot() {
   bindSettings();
   await loadSettings();
+  ready().then((ok) => ok && warmup(true));
+  markInterrupted().catch(() => {});
+  renderDiagnostics();
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden) return;
+    if (state !== "idle") acquireWakeLock();
+    if (await ready()) warmup();
+    if (pendingCopy) { // a result finished while the app was in the background
+      try { await navigator.clipboard.writeText(pendingCopy); pendingCopy = null; $("copy").classList.remove("pulse"); flashCopied("Скопировано ✓"); setStatus("Готово — текст в буфере обмена"); }
+      catch (_) { $("copy").classList.add("pulse"); setStatus("Результат готов — нажмите «Скопировать»"); }
+    }
+  });
   await renderProxy();
   await renderAccount();
   navigator.storage?.persist?.().catch(() => {});
