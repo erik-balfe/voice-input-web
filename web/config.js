@@ -70,12 +70,14 @@ export const CONFIG = {
     "person and language of the original (never translate). Do not add anything, do not answer " +
     "questions contained in the text, no quotes, no comments. Output only the cleaned text.",
   ],
-  // Presets: «fast» is the default candidate (benchmark: 0.6 s p50 / 1.1 s p95, quality 4.8/5); «smart» = grok-4.7 low (3.5 s p50, 9 s p95, quality 4.9/5).
+  // Presets. «classic» = the previous default (grok-4.7 low + careful prompt), still the default. «fast» (benchmark 2026-10-18: 0.6 s p50 / 1.1 s p95, quality 4.8/5), «fast43», «smart» are opt-in.
   presets: {
-    fast: { label: "Быстро (~0,6 с)", model: "grok-4.20-0309-non-reasoning", effort: "", shots: false },
-    smart: { label: "Аккуратно: Grok 4.7 (3–9 с)", model: "grok-4.7", effort: "low", shots: true },
+    classic: { label: "Как раньше: Grok 4.7 low (3–9 с)", model: "grok-4.7", effort: "low", prompt: "careful", shots: false },
+    fast: { label: "Быстро: Grok 4.20 без рассуждения (~0,6 с)", model: "grok-4.20-0309-non-reasoning", effort: "", prompt: "strict", shots: false },
+    fast43: { label: "Быстро: Grok 4.3, effort none (~0,6 с)", model: "grok-4.3", effort: "none", prompt: "strict", shots: false },
+    smart: { label: "Аккуратно: Grok 4.7 low + строгий промпт (3–9 с)", model: "grok-4.7", effort: "low", prompt: "strict", shots: true },
   },
-  defaultPreset: "fast",
+  defaultPreset: "classic", // unchanged behaviour for everyone; «fast» etc. are opt-in in Settings
   // Tried in order when the chosen model is rejected (400/403/404), e.g. a retired model or not in the OAuth plan.
   fallbackChain: [{ model: "grok-4.3", effort: "none" }, { model: "grok-4.7", effort: "low" }],
   refineBudgetMs: 6000, // after STT: wait at most this long for the clean text before the clipboard gets the raw text

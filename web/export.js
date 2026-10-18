@@ -30,7 +30,7 @@ export async function buildExport({ audio = false, appVersion = "" } = {}) {
   for (const e of items) {
     const row = {
       id: e.id, createdAt: new Date(e.createdAt).toISOString(), seconds: e.seconds, mime: e.mime,
-      raw: e.raw || "", text: e.text || "", model: e.model || "", effort: e.effort || "", error: e.error || "",
+      raw: e.raw || "", text: e.text || "", model: e.model || "", effort: e.effort || "", preset: e.preset || "", promptMode: e.promptMode || "", error: e.error || "",
       timing: e.timing || null,
     };
     if (audio && e.audio) {

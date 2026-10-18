@@ -29,7 +29,7 @@
 
   <main>
     <section id="tab-dictate" class="panel active">
-      <div id="preset-note" class="hint hidden">Чистка теперь по умолчанию быстрая (Grok 4.20 без рассуждения, около 0,6 с вместо 3–9 с). Прежний режим: Настройки → Режим чистки → «Аккуратно». <button id="preset-note-ok" class="secondary">Понятно</button></div>
+      <div id="preset-note" class="hint hidden">Режим чистки изменён. <button id="preset-note-ok" class="secondary">Понятно</button></div>
       <div id="signin-hint" class="hint hidden">Сначала войдите: <a href="#" data-goto="settings">Настройки → Войти через xAI</a></div>
       <div id="status" class="status">Нажмите, чтобы начать запись</div>
       <button id="rec" class="rec" aria-label="Запись">
@@ -92,8 +92,10 @@
       <label class="toggle"><input type="checkbox" id="autocopy" checked> Автокопирование по «Стоп»</label>
       <label>Режим чистки
         <select id="cleanup-preset">
+          <option value="classic">Как раньше — Grok 4.7 low (3–9 с)</option>
           <option value="fast">Быстро — Grok 4.20 без рассуждения (~0,6 с)</option>
-          <option value="smart">Аккуратно — Grok 4.7, effort low (3–9 с)</option>
+          <option value="fast43">Быстро — Grok 4.3, effort none (~0,6 с)</option>
+          <option value="smart">Аккуратно — Grok 4.7 low, строгий промпт (3–9 с)</option>
           <option value="custom">Своя настройка</option>
         </select>
       </label>
