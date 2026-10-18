@@ -20,3 +20,10 @@ The auth proxy is not in the hot path (only OAuth login/refresh). STT and cleanu
 6. Option: skip cleanup for dictations shorter than N words (default 0 = off).
 7. Diagnostics (Settings → Диагностика скорости): per-run timings, p50/p95, copy as JSON. Numbers only; no dictated text.
 8. If iOS kills the tab mid-request, the entry is marked "interrupted" with a «Распознать заново» hint; screen wake lock during recording/processing.
+
+## Benchmark 2 (synthetic: 20 Russian dictations, real api.x.ai, judge = grok-4.7)
+- Reasoning tokens depend on the **effort**, not on the prompt: grok-4.7 low = 317–396 tokens with prompts from 178 to 19 words; medium ≈ 550, high ≈ 1000, default (= high) ≈ 870. The ambiguity/length of the prompt does not change it. grok-4.7 also adds ≈1 000 hidden input tokens.
+- Efforts: grok-4.7/4.6/4.5 `low|medium|high|xhigh` (default high; `none` rejected); grok-4.3 `none|low|medium|high|xhigh` (default low); 4.20-0309-non-reasoning/-reasoning, grok-build-0.1 have no effort parameter.
+- Only models without reasoning are fast (0.6 s). Without a strict prompt they fail: they answer or obey the dictation (write a shopping list, tell a joke), translate the English part, drop clauses.
+- Fix: `strict` pack (rules + the dictation inside `<dictation>` tags). grok-4.20 non-reasoning: 0 failures, quality 4.84/5, 0.62 s p50 / 1.07 s p95. Tables: `bench/table1.md`, `bench/judge*.json`.
+- Settings → «Экспорт истории»: JSON file (raw text, clean text, model, timings, optional audio). Nothing is sent automatically.

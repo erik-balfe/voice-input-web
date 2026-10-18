@@ -119,8 +119,14 @@ export async function readResponsesStream(body, onDelta, trace, t0) {
 }
 
 /** Cleanup through the Responses API (same bearer). Streams when possible: onDelta(textSoFar). */
-export async function cleanup(text, model, prompt, effort, { trace, onDelta, signal, stream = true } = {}) {
-  const payload = { model, store: false, input: [{ role: "system", content: prompt }, { role: "user", content: text }] };
+export async function cleanup(text, model, prompt, effort, { trace, onDelta, signal, stream = true, pack } = {}) {
+  // pack = { wrap: true, shots: [[dictation, cleaned], ...] }: the dictation goes inside <dictation> tags and a few worked
+  // examples precede it. This is what keeps non-reasoning models from answering/obeying/translating the text.
+  const wrap = (t) => (pack?.wrap ? `<dictation>${t}</dictation>` : t);
+  const input = [{ role: "system", content: prompt }];
+  for (const [u, a] of pack?.shots || []) input.push({ role: "user", content: wrap(u) }, { role: "assistant", content: a });
+  input.push({ role: "user", content: wrap(text) });
+  const payload = { model, store: false, input };
   if (effort) payload.reasoning = { effort };
   const canStream = stream && typeof ReadableStream !== "undefined";
   if (canStream) payload.stream = true;

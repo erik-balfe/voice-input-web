@@ -6,11 +6,12 @@ import fs from "node:fs";
 const lang = "ru";
 const audio = { short: "/tmp/a_short.webm", mid: "/tmp/a_mid.webm" };
 const N = Number(process.env.N || 5);
+const strict = { wrap: true, shots: [] }, strictShots = { wrap: true, shots: CONFIG.strictShots };
 const cfgs = [
   { name: "BEFORE  grok-4.7 low, careful prompt, no stream", model: "grok-4.7", effort: "low", prompt: CONFIG.carefulCleanupPrompt, stream: false },
-  { name: "grok-4.7 low, careful prompt, stream",           model: "grok-4.7", effort: "low", prompt: CONFIG.carefulCleanupPrompt, stream: true },
-  { name: "grok-4.3 none, fast prompt, stream",              model: "grok-4.3", effort: "none", prompt: CONFIG.fastCleanupPrompt, stream: true },
-  { name: "AFTER   grok-4.20 non-reasoning, fast prompt, stream", model: "grok-4.20-0309-non-reasoning", effort: "", prompt: CONFIG.fastCleanupPrompt, stream: true },
+  { name: "AFTER fast: grok-4.20 non-reasoning, strict pack, stream", model: "grok-4.20-0309-non-reasoning", effort: "", prompt: CONFIG.strictCleanupPrompt, stream: true, pack: strict },
+  { name: "smart: grok-4.7 low, strict pack + shots, stream", model: "grok-4.7", effort: "low", prompt: CONFIG.strictCleanupPrompt, stream: true, pack: strictShots },
+  { name: "grok-4.3 none, strict pack, stream", model: "grok-4.3", effort: "none", prompt: CONFIG.strictCleanupPrompt, stream: true, pack: strict },
 ];
 const out = []; const errs = [];
 for (const [an, path] of Object.entries(audio)) {
@@ -23,7 +24,7 @@ for (const [an, path] of Object.entries(audio)) {
       const raw = await transcribe(blob, lang, tr);
       const t1 = performance.now();
       let clean = "";
-      try { clean = await cleanup(raw, c.model, c.prompt, c.effort || undefined, { trace: tr, stream: c.stream }); }
+      try { clean = await cleanup(raw, c.model, c.prompt, c.effort || undefined, { trace: tr, stream: c.stream, pack: c.pack }); }
       catch (e) { clean = "ERR " + e.message; errs.push(`${c.name}: ${e.message} after ${((performance.now() - t1) / 1000).toFixed(1)}s notes=${tr.notes}`); }
       const t2 = performance.now();
       rows.push({ stt: t1 - t0, rf: t2 - t1, first: tr.ev.rf_first, e2e: t2 - t0, att: tr.ev.rf_attempts, clean });

@@ -3,6 +3,7 @@ import { kv, history } from "./db.js";
 import * as auth from "./auth.js";
 import { transcribe, cleanup, warmup, HttpError } from "./grok.js";
 import { Trace, timings, summarize } from "./metrics.js";
+import { exportFile, shareFile, downloadFile, estimate } from "./export.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -19,7 +20,7 @@ const settings = {
   preset: CONFIG.defaultPreset, // fast | smart | custom
   cleanupModel: CONFIG.presets[CONFIG.defaultPreset].model,
   cleanupEffort: CONFIG.presets[CONFIG.defaultPreset].effort, // "" = model default (not sent)
-  cleanupPrompt: CONFIG.fastCleanupPrompt,
+  cleanupPrompt: CONFIG.strictCleanupPrompt,
   skipRefineWords: 0, // 0 = always refine; N = skip refine for dictations shorter than N words
   refineBudgetMs: CONFIG.refineBudgetMs,
   timings: true, // numeric timings only, never dictated text
@@ -67,7 +68,7 @@ function applyPreset(name) {
   settings.preset = name;
   settings.cleanupModel = p.model;
   settings.cleanupEffort = p.effort;
-  settings.cleanupPrompt = name === "fast" ? CONFIG.fastCleanupPrompt : CONFIG.carefulCleanupPrompt;
+  settings.cleanupPrompt = CONFIG.strictCleanupPrompt;
 }
 const markCustom = () => { settings.preset = "custom"; $("cleanup-preset").value = "custom"; };
 
@@ -87,6 +88,24 @@ function bindSettings() {
   $("refine-budget").onchange = (e) => { const v = Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 6)); e.target.value = v; settings.refineBudgetMs = v * 1000; saveSettings(); };
   $("timings-on").onchange = (e) => { settings.timings = e.target.checked; saveSettings(); };
   $("diag-copy").onclick = async () => { const list = await timings.list(); const ok = await copyText(JSON.stringify({ app: APP_VERSION, runs: list }, null, 1)); $("diag-msg").textContent = ok ? `Скопировано: ${list.length} замеров` : "Не удалось скопировать"; };
+  $("export-audio").onchange = refreshExportEstimate;
+  const doExport = async (how) => {
+    const msg = $("export-msg"); msg.textContent = "Готовлю файл…";
+    try {
+      const r = await exportFile({ audio: $("export-audio").checked, appVersion: APP_VERSION });
+      if (!r.count) { msg.textContent = "История пуста — экспортировать нечего"; return; }
+      const mb = r.bytes > 1048576 ? (r.bytes / 1048576).toFixed(1) + " МБ" : Math.max(1, Math.round(r.bytes / 1024)) + " КБ";
+      if (how === "share") {
+        try { if (await shareFile(r.file, r.count)) { msg.textContent = `Отправлено в «Поделиться»: ${r.count} записей, ${mb}`; return; } }
+        catch (e) { if (e.name === "AbortError") { msg.textContent = "Отменено"; return; } throw e; }
+        msg.textContent = "Браузер не умеет делиться файлами — скачиваю…";
+      }
+      downloadFile(r.file);
+      msg.textContent = `Файл ${r.name} (${r.count} записей, ${mb}) скачан — найдите его в «Файлах»/загрузках и отправьте боту в чат`;
+    } catch (e) { msg.textContent = `Ошибка экспорта: ${e.message || e}`; }
+  };
+  $("export-share").onclick = () => doExport("share");
+  $("export-download").onclick = () => doExport("download");
   $("diag-clear").onclick = async () => { await timings.clear(); renderDiagnostics(); };
   $("cleanup-model-select").onchange = (e) => {
     markCustom();
@@ -97,7 +116,7 @@ function bindSettings() {
   };
   $("cleanup-model-custom").onchange = (e) => { const v = e.target.value.trim(); if (v) { markCustom(); settings.cleanupModel = v; saveSettings(); renderModelControls(); } };
   $("cleanup-effort").onchange = (e) => { markCustom(); settings.cleanupEffort = e.target.value; saveSettings(); };
-  $("cleanup-prompt").onchange = (e) => { markCustom(); settings.cleanupPrompt = e.target.value.trim() || CONFIG.fastCleanupPrompt; saveSettings(); };
+  $("cleanup-prompt").onchange = (e) => { markCustom(); settings.cleanupPrompt = e.target.value.trim() || CONFIG.strictCleanupPrompt; saveSettings(); };
   $("reset-prompt").onclick = () => {
     applyPreset(CONFIG.defaultPreset); showCustom(false);
     $("cleanup-preset").value = settings.preset;
@@ -131,6 +150,12 @@ function renderModelControls() {
   eff.value = settings.cleanupEffort || "";
 }
 
+/** The strict prompt comes with its wrapper (+ worked examples in «smart»); a hand-edited prompt is sent as is. */
+function promptPack() {
+  if (settings.cleanupPrompt !== CONFIG.strictCleanupPrompt) return undefined;
+  return { wrap: true, shots: CONFIG.presets[settings.preset]?.shots ? CONFIG.strictShots : [] };
+}
+
 /** Cleanup with automatic fallback when the chosen model is rejected (retired / not in the OAuth plan). */
 async function runCleanup(raw, trace, onDelta) {
   const first = { model: settings.cleanupModel, effort: settings.cleanupEffort || "" };
@@ -140,7 +165,7 @@ async function runCleanup(raw, trace, onDelta) {
     const t = tries[i];
     trace.m.model = t.model; trace.m.effort = t.effort || "";
     try {
-      const text = await cleanup(raw, t.model, settings.cleanupPrompt, t.effort || undefined, { trace, onDelta });
+      const text = await cleanup(raw, t.model, settings.cleanupPrompt, t.effort || undefined, { trace, onDelta, pack: promptPack() });
       return { text, model: t.model, effort: t.effort || "", note: i ? `Модель ${first.model} отклонена (${String(firstErr.message).slice(0, 120)}), использована ${t.model}` : "" };
     } catch (e) {
       firstErr = firstErr || e;
@@ -155,7 +180,7 @@ function showTab(name) {
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${name}`));
   if (name === "history") renderHistory();
-  if (name === "settings") renderDiagnostics();
+  if (name === "settings") { renderDiagnostics(); refreshExportEstimate(); }
 }
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 document.querySelectorAll("[data-goto]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); showTab(a.dataset.goto); }));
@@ -387,7 +412,7 @@ async function processTake(take, existingId, hooks = {}) {
       catch (e) { entry.error = `Чистка не удалась, оставлен исходный текст: ${e.message}`; trace.note(`refine failed: ${e.status || e.name}`); }
       trace.mark("refine_done");
     }
-    entry.timing = { stt: trace.ev.stt_total ?? null, refine: trace.ev.rf_total ?? null };
+    entry.timing = { ...trace.ev, model: trace.m.model || "", effort: trace.m.effort ?? "", preset: trace.m.preset || "", words: trace.m.words, chars: trace.m.chars, net: navigator.connection?.effectiveType || "" };
     hooks.onFinal?.(entry.text);
     $("result-meta").textContent = describeModel(entry, trace);
     await history.put(entry);
@@ -569,6 +594,13 @@ async function autostart() {
 }
 
 // ---------- diagnostics ----------
+async function refreshExportEstimate() {
+  const e = await estimate();
+  const mb = (b) => (b / 1048576).toFixed(1);
+  $("export-info").textContent = e.count
+    ? `В истории ${e.count} записей. Файл без аудио ≈ ${Math.max(1, Math.round(e.textBytes / 1024))} КБ, аудио добавит ≈ ${mb(e.audioBytes)} МБ.`
+    : "История пуста.";
+}
 const DIAG_COLS = [["stt_total", "STT"], ["stt_token", "токен"], ["rf_first", "чистка: 1-й токен"], ["rf_total", "чистка"], ["refine_done", "до чистого текста"], ["clipboard_done", "до буфера"]];
 
 async function renderDiagnostics() {

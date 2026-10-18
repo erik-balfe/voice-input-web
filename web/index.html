@@ -29,7 +29,7 @@
 
   <main>
     <section id="tab-dictate" class="panel active">
-      <div id="preset-note" class="hint hidden">Чистка теперь по умолчанию быстрая (Grok 4.20 без рассуждения, около 0,5 с вместо 3–9 с). Прежний режим: Настройки → Режим чистки → «Аккуратно». <button id="preset-note-ok" class="secondary">Понятно</button></div>
+      <div id="preset-note" class="hint hidden">Чистка теперь по умолчанию быстрая (Grok 4.20 без рассуждения, около 0,6 с вместо 3–9 с). Прежний режим: Настройки → Режим чистки → «Аккуратно». <button id="preset-note-ok" class="secondary">Понятно</button></div>
       <div id="signin-hint" class="hint hidden">Сначала войдите: <a href="#" data-goto="settings">Настройки → Войти через xAI</a></div>
       <div id="status" class="status">Нажмите, чтобы начать запись</div>
       <button id="rec" class="rec" aria-label="Запись">
@@ -92,7 +92,7 @@
       <label class="toggle"><input type="checkbox" id="autocopy" checked> Автокопирование по «Стоп»</label>
       <label>Режим чистки
         <select id="cleanup-preset">
-          <option value="fast">Быстро — Grok 4.20 без рассуждения (~0,5 с)</option>
+          <option value="fast">Быстро — Grok 4.20 без рассуждения (~0,6 с)</option>
           <option value="smart">Аккуратно — Grok 4.7, effort low (3–9 с)</option>
           <option value="custom">Своя настройка</option>
         </select>
@@ -118,6 +118,16 @@
         <label class="toggle"><input type="checkbox" id="timings-on"> Записывать тайминги (только числа, без текста диктовки)</label>
         <div id="diag-stats"></div>
         <div class="row"><button id="diag-copy" class="secondary">Скопировать JSON</button><button id="diag-clear" class="secondary">Очистить</button><span id="diag-msg" class="small"></span></div>
+      </details>
+
+      <h2>Экспорт истории</h2>
+      <details>
+        <summary>История диктовок для диагностики (файл JSON)</summary>
+        <p class="small">Файл содержит ваши диктовки: сырой текст распознавания, результат чистки, время, модель; по желанию и аудио. Ничего не отправляется само: вы сами нажимаете кнопку и сами выбираете, куда отдать файл.</p>
+        <label class="toggle"><input type="checkbox" id="export-audio"> Добавить аудио (файл станет больше)</label>
+        <div id="export-info" class="small"></div>
+        <div class="row"><button id="export-share" class="primary">Поделиться…</button><button id="export-download" class="secondary">Скачать JSON</button></div>
+        <div id="export-msg" class="small"></div>
       </details>
 
       <h2>О приложении</h2>
