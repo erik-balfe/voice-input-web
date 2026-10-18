@@ -27,3 +27,11 @@ The auth proxy is not in the hot path (only OAuth login/refresh). STT and cleanu
 - Only models without reasoning are fast (0.6 s). Without a strict prompt they fail: they answer or obey the dictation (write a shopping list, tell a joke), translate the English part, drop clauses.
 - Fix: `strict` pack (rules + the dictation inside `<dictation>` tags). grok-4.20 non-reasoning: 0 failures, quality 4.84/5, 0.62 s p50 / 1.07 s p95. Tables: `bench/table1.md`, `bench/judge*.json`.
 - Settings → «Экспорт истории»: JSON file (raw text, clean text, model, timings, optional audio). Nothing is sent automatically.
+
+## Strict prompt V4 (2026-10-18.3, branch perf/strict-v4, not published)
+
+Changes vs V2 (general rules only): expanded filler list (короче, как бы, вот, в общем, так сказать, значит, слушай/смотри as bare openers, you know);
+"process the WHOLE text to the end, never summarize or shorten otherwise"; terms/code words stay as spoken; numbers written exactly as spoken.
+Presets (fast/fast43/smart) are re-synced from config on load so prompt updates reach their users; `custom` is untouched.
+
+Synthetic set (20 dictations, judge grok-4.7 low, composite q): 4.20 non-reasoning V2 4.84 → V4 4.92; 4.3 none V2 4.78 → V4 4.89. Latency unchanged (p50 0.62 / 0.69 s).

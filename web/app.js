@@ -10,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const AUTOSTART = params.get("autostart") === "1";
 const MAX_TAKE_SEC = 300;
 const MIN_TAKE_SEC = 0.5;
-const APP_VERSION = "2026-10-18.2";
+const APP_VERSION = "2026-10-18.3";
 
 
 const settings = {
@@ -44,6 +44,12 @@ async function loadSettings() {
     if (untouched) { applyPreset(CONFIG.defaultPreset); settings.presetNote = false; }
     else settings.preset = "custom";
     migrated = true;
+  }
+  // Presets are authoritative: re-sync model/effort/prompt so prompt improvements reach users of a named preset.
+  if (CONFIG.presets[settings.preset]) {
+    const before = JSON.stringify([settings.cleanupModel, settings.cleanupEffort, settings.cleanupPrompt]);
+    applyPreset(settings.preset);
+    if (before !== JSON.stringify([settings.cleanupModel, settings.cleanupEffort, settings.cleanupPrompt])) migrated = true;
   }
   if (migrated) await saveSettings();
   $("language").value = settings.language;
